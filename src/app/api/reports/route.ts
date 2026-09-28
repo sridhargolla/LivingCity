@@ -10,6 +10,7 @@ import { ingestCandidates } from "@/server/ingestion/ingest";
 import { isWithinHyderabad, sanitizeText } from "@/server/ingestion/normalize";
 import { nearestZone } from "@/server/types";
 import { publish } from "@/server/realtime/eventBus";
+import { getCityConfig } from "@/server/cities";
 
 export const dynamic = "force-dynamic";
 
@@ -26,6 +27,7 @@ function rateLimited(ip: string): boolean {
 }
 
 const ReportSchema = z.object({
+  cityId: z.string().max(40).default("hyderabad"),
   description: z.string().min(10).max(2000),
   category: z.enum([
     "WATERLOGGING",
@@ -82,21 +84,28 @@ export async function POST(req: NextRequest) {
   let lat: number | null = null;
   let lon: number | null = null;
   let locationName = sanitizeText(data.locationName ?? "", 200);
+  const cityCfg = getCityConfig(data.cityId);
 
   if (typeof data.latitude === "number" && typeof data.longitude === "number") {
-    if (!isWithinHyderabad(data.latitude, data.longitude)) {
+    // Hyderabad uses the strict operational-area check; other configured cities use a
+    // generous bounds window around the city center (no fabricated precision).
+    const inBounds =
+      data.cityId === "hyderabad"
+        ? isWithinHyderabad(data.latitude, data.longitude)
+        : Math.abs(data.latitude - cityCfg.latitude) < 0.75 && Math.abs(data.longitude - cityCfg.longitude) < 0.75;
+    if (!inBounds) {
       return NextResponse.json(
-        { error: "Coordinates are outside the Hyderabad operational area" },
+        { error: `Coordinates are outside the ${cityCfg.name} operational area` },
         { status: 400 }
       );
     }
     lat = data.latitude;
     lon = data.longitude;
-    if (!locationName) locationName = nearestZone(lat, lon).name;
+    if (!locationName) locationName = data.cityId === "hyderabad" ? nearestZone(lat, lon).name : `${cityCfg.name} district area`;
   }
 
   const zone = ZONE_POINTS.west;
-  if (lat === null && !locationName) locationName = zone.name;
+  if (lat === null && !locationName) locationName = data.cityId === "hyderabad" ? zone.name : `${cityCfg.name} (citywide)`;
 
   const title = `${data.category === "USER_REPORT" ? "Operator Report" : data.category.replace(/_/g, " ").toLowerCase().replace(/\b\w/g, (c) => c.toUpperCase())} — ${locationName}`;
 
@@ -104,6 +113,7 @@ export async function POST(req: NextRequest) {
     {
       source: "report-portal",
       dataOrigin: "USER_REPORTED",
+      cityId: data.cityId,
       eventType: data.category,
       title,
       description: sanitizeText(data.description, 2000),

@@ -13,13 +13,21 @@ interface CityMapProps {
   events: PublicEvent[];
   selectedId: string | null;
   onSelect: (id: string) => void;
+  /** Incremented to force a pan/zoom onto the selected event (chat action). */
+  focusTick?: number;
+  /** City center for multi-city recentering. */
+  center?: [number, number];
 }
 
-export function CityMap({ events, selectedId, onSelect }: CityMapProps) {
+export function CityMap({ events, selectedId, onSelect, focusTick = 0, center = [17.385, 78.4867] }: CityMapProps) {
   const containerRef = useRef<HTMLDivElement | null>(null);
   const mapRef = useRef<L.Map | null>(null);
   const markersRef = useRef<Map<string, L.Marker>>(new Map());
   const circleRef = useRef<L.Circle | null>(null);
+  const onSelectRef = useRef(onSelect);
+  useEffect(() => {
+    onSelectRef.current = onSelect;
+  }, [onSelect]);
 
   const located = useMemo(() => events.filter((e) => e.latitude !== null && e.longitude !== null), [events]);
 
@@ -46,6 +54,21 @@ export function CityMap({ events, selectedId, onSelect }: CityMapProps) {
     };
   }, []);
 
+  // recenter when the active city changes
+  useEffect(() => {
+    mapRef.current?.panTo(center, { animate: true });
+  }, [center]);
+
+  // chat action: focus the selected event
+  useEffect(() => {
+    if (!focusTick) return;
+    const map = mapRef.current;
+    const selected = located.find((e) => e.id === selectedId);
+    if (map && selected && selected.latitude !== null && selected.longitude !== null) {
+      map.flyTo([selected.latitude, selected.longitude], 14, { duration: 0.8 });
+    }
+  }, [focusTick]);
+
   // sync markers with events
   useEffect(() => {
     const map = mapRef.current;
@@ -70,7 +93,7 @@ export function CityMap({ events, selectedId, onSelect }: CityMapProps) {
         existing.setIcon(icon);
       } else {
         const marker = L.marker([e.latitude!, e.longitude!], { icon }).addTo(map);
-        marker.on("click", () => onSelect(e.id));
+        marker.on("click", () => onSelectRef.current(e.id));
         markersRef.current.set(e.id, marker);
       }
     }

@@ -10,14 +10,18 @@ interface EventDetailPanelProps {
   onSelect: (id: string) => void;
   onClose: () => void;
   refreshTick: number;
+  onRunWhatIf?: (eventId: string) => void;
+  onShowEvidence?: (eventId: string) => void;
 }
 
-export function EventDetailPanel({ eventId, events, onSelect, onClose, refreshTick }: EventDetailPanelProps) {
+export function EventDetailPanel({ eventId, events, onSelect, onClose, refreshTick, onRunWhatIf, onShowEvidence }: EventDetailPanelProps) {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [data, setData] = useState<Awaited<ReturnType<typeof api.event>> | null>(null);
   const [memory, setMemory] = useState<Awaited<ReturnType<typeof api.eventMemory>> | null>(null);
   const [memoryLoading, setMemoryLoading] = useState(true);
+  const [feedbackState, setFeedbackState] = useState<{ verdict: string; retained: boolean } | null>(null);
+  const [feedbackBusy, setFeedbackBusy] = useState(false);
 
   useEffect(() => {
     let alive = true;
@@ -43,6 +47,30 @@ export function EventDetailPanel({ eventId, events, onSelect, onClose, refreshTi
       alive = false;
     };
   }, [eventId, refreshTick]);
+
+  // reset local feedback state when the event changes
+  useEffect(() => {
+    setFeedbackState(null);
+  }, [eventId]);
+
+  const submitFeedback = async (verdict: string) => {
+    if (feedbackBusy || !data?.event) return;
+    setFeedbackBusy(true);
+    try {
+      const r = await api.feedback(eventId, {
+        verdict,
+        observation: data.analysis?.summary ?? data.event.title,
+      });
+      setFeedbackState({ verdict, retained: r.retainedToMemory });
+    } catch {
+      setFeedbackState({ verdict, retained: false });
+    } finally {
+      setFeedbackBusy(false);
+    }
+  };
+
+  // transferred experience (cross-city learning) surfaced from the analysis payload
+  const transferred = (data?.analysis as unknown as { transferred?: { cityName: string; text: string } | null })?.transferred ?? null;
 
   const event = data?.event;
   const analysis = data?.analysis;
@@ -181,6 +209,19 @@ export function EventDetailPanel({ eventId, events, onSelect, onClose, refreshTi
                   </span>
                 </div>
                 <p className="mt-2 text-[12px] leading-relaxed text-slate-200">{analysis.summary}</p>
+
+                {transferred && (
+                  <div className="mt-2 rounded border border-sky-500/30 bg-sky-500/5 p-2.5">
+                    <p className="text-[10px] font-bold uppercase tracking-wider text-sky-300">
+                      ⟶ Transferred experience · {transferred.cityName}
+                    </p>
+                    <p className="mt-1 text-[11px] leading-relaxed text-sky-100/80">{transferred.text}</p>
+                    <p className="mt-1 text-[9px] uppercase tracking-wider text-sky-300/60">
+                      Cross-city insight — not local evidence. Local observations remain authoritative.
+                    </p>
+                  </div>
+                )}
+
                 {analysis.risks.length > 0 && (
                   <div className="mt-2">
                     <p className="text-[10px] font-bold uppercase tracking-wider text-slate-500">Possible risks</p>
@@ -201,6 +242,50 @@ export function EventDetailPanel({ eventId, events, onSelect, onClose, refreshTi
                     </ul>
                   </div>
                 )}
+
+                {/* ── HUMAN FEEDBACK (PHASE 12) ── */}
+                <div className="mt-3 rounded border border-[#141d31] bg-[#080d18] px-2.5 py-2">
+                  {feedbackState ? (
+                    <p className="text-[11px] text-slate-300">
+                      <span className="font-semibold text-slate-100">Recorded: {feedbackState.verdict}</span>
+                      {feedbackState.retained && " · 🧠 retained to city memory (tagged human feedback)"}
+                      {!feedbackState.retained && (feedbackState.verdict === "CONFIRMED" || feedbackState.verdict === "REJECTED") && " · city memory unavailable — feedback stored locally"}
+                    </p>
+                  ) : (
+                    <>
+                      <p className="text-[9px] font-bold uppercase tracking-[0.18em] text-slate-500">Your judgment — is this assessment sound?</p>
+                      <div className="mt-1.5 flex flex-wrap gap-1.5">
+                        <FeedbackButton label="✓ Confirm" onClick={() => submitFeedback("CONFIRMED")} disabled={feedbackBusy} accent="emerald" />
+                        <FeedbackButton label="✕ Reject" onClick={() => submitFeedback("REJECTED")} disabled={feedbackBusy} accent="rose" />
+                        <FeedbackButton label="🔍 Investigate" onClick={() => submitFeedback("INVESTIGATE")} disabled={feedbackBusy} accent="cyan" />
+                        <FeedbackButton label="✕ Dismiss" onClick={() => submitFeedback("DISMISSED")} disabled={feedbackBusy} accent="slate" />
+                      </div>
+                      <p className="mt-1 text-[9px] leading-relaxed text-slate-600">
+                        Confirm/Reject are retained into city memory so future analyses respect human judgment.
+                      </p>
+                    </>
+                  )}
+                </div>
+
+                {/* ── EVIDENCE + WHAT-IF ACTIONS ── */}
+                <div className="mt-2 flex flex-wrap gap-1.5">
+                  {onShowEvidence && (
+                    <button
+                      onClick={() => onShowEvidence(eventId)}
+                      className="rounded border border-cyan-500/30 bg-cyan-500/5 px-2 py-1 text-[10px] font-semibold tracking-wider text-cyan-300 hover:bg-cyan-500/15"
+                    >
+                      🧾 Evidence
+                    </button>
+                  )}
+                  {onRunWhatIf && (
+                    <button
+                      onClick={() => onRunWhatIf(eventId)}
+                      className="rounded border border-sky-500/30 bg-sky-500/5 px-2 py-1 text-[10px] font-semibold tracking-wider text-sky-300 hover:bg-sky-500/15"
+                    >
+                      ⚡ What-if
+                    </button>
+                  )}
+                </div>
               </>
             )}
           </div>
@@ -236,6 +321,25 @@ function Row({ label, value, valueClass }: { label: string; value: string; value
       <dt className="shrink-0 text-[9px] font-bold uppercase tracking-[0.18em] text-slate-500">{label}</dt>
       <dd className={`truncate text-slate-300 ${valueClass ?? ""}`}>{value}</dd>
     </div>
+  );
+}
+
+const FEEDBACK_ACCENTS: Record<string, string> = {
+  emerald: "border-emerald-500/40 bg-emerald-500/10 text-emerald-300 hover:bg-emerald-500/20",
+  rose: "border-rose-500/40 bg-rose-500/10 text-rose-300 hover:bg-rose-500/20",
+  cyan: "border-cyan-500/40 bg-cyan-500/10 text-cyan-300 hover:bg-cyan-500/20",
+  slate: "border-[#1c2942] bg-transparent text-slate-400 hover:text-slate-200",
+};
+
+function FeedbackButton({ label, onClick, disabled, accent }: { label: string; onClick: () => void; disabled: boolean; accent: string }) {
+  return (
+    <button
+      onClick={onClick}
+      disabled={disabled}
+      className={`rounded border px-2 py-1 text-[10px] font-semibold tracking-wider transition-colors disabled:opacity-40 ${FEEDBACK_ACCENTS[accent] ?? FEEDBACK_ACCENTS.slate}`}
+    >
+      {label}
+    </button>
   );
 }
 

@@ -17,6 +17,7 @@ import { reasonAboutEvent, sanitizeUntrusted, type CityAnalysis } from "@/server
 import { EVENT_TYPE_LABELS, SEVERITY_ORDER } from "@/server/types";
 import { publicEvent } from "@/server/ingestion/ingest";
 import { DEMO_BANK } from "@/server/demo/scenarios";
+import { bankIdForCity, getCityConfig, CITY_REGISTRY } from "@/server/cities";
 
 /** In-process lock so the same event is never analyzed twice concurrently. */
 const globalForLocks = globalThis as unknown as { __livingCityAnalysisLocks?: Set<string> };
@@ -40,8 +41,10 @@ async function runAnalysis(eventId: string, priority: boolean): Promise<void> {
 
   // Demo events use an isolated demo bank so simulated experiences never
   // pollute the live city memory bank (and the before/after contrast stays clean).
+  // Regular events use their OWN city's bank — CITY A MEMORY ≠ CITY B MEMORY.
   const isDemoEvent = event.source === "demo-scenarios";
-  const bankId = isDemoEvent ? DEMO_BANK : undefined;
+  const bankId = isDemoEvent ? DEMO_BANK : bankIdForCity(event.cityId);
+  
 
   // ── 2. HINDSIGHT RECALL ──────────────────────────────────────────────────
   const recallQuery = `${eventTypeLabel} ${zone} ${event.tags ? JSON.parse(event.tags).join(" ") : ""} what happened and what were the consequences`;
@@ -52,10 +55,34 @@ async function runAnalysis(eventId: string, priority: boolean): Promise<void> {
     bankId,
   });
 
+  // ── 2b. CROSS-CITY TRANSFER (PHASE 15) — only when the local bank has nothing.
+  // Results are labeled TRANSFERRED EXPERIENCE and are NEVER treated as local facts.
+  let transferred: { cityId: string; cityName: string; text: string; memoryId: string } | null = null;
+  if (!isDemoEvent && recall.status === "SUCCESS" && recall.experiences.length === 0) {
+    for (const other of CITY_REGISTRY.filter((c) => c.cityId !== event.cityId)) {
+      const cross = await HindsightMemoryService.recall_from_other_city({
+        fromCityId: other.cityId,
+        query: recallQuery,
+        limit: 3,
+      });
+      if (cross.status === "SUCCESS" && cross.experiences.length > 0) {
+        transferred = {
+          cityId: other.cityId,
+          cityName: other.name,
+          text: cross.experiences[0].text.slice(0, 300),
+          memoryId: cross.experiences[0].id,
+        };
+        break;
+      }
+    }
+  }
+
   publish("memory.recalled", {
     eventId,
+    cityId: event.cityId,
     status: recall.status,
     count: recall.experiences.length,
+    transferred: transferred ? { cityName: transferred.cityName, preview: transferred.text.slice(0, 120) } : null,
     memories: recall.experiences.slice(0, 6).map((m) => ({ id: m.id, text: m.text.slice(0, 160) })),
   });
 
@@ -88,6 +115,13 @@ async function runAnalysis(eventId: string, priority: boolean): Promise<void> {
     console.warn(`[analysis] degraded mode for ${eventId}: ${reasoning.status} ${reasoning.error ?? ""}`);
   }
 
+  // If local memory was empty but another city had a similar experience, surface it
+  // as a clearly-labeled transferred note (never as local evidence).
+  if (transferred) {
+    analysis.historical_comparison.cautious_note =
+      `Local memory had no related experience. TRANSFERRED EXPERIENCE from ${transferred.cityName} (not local evidence): "${transferred.text.slice(0, 160)}". Local observations remain authoritative.`.slice(0, 400);
+  }
+
   // ── 5. Persist analysis ──────────────────────────────────────────────────
   const saved = await db.analysisResult.upsert({
     where: { eventId },
@@ -101,7 +135,7 @@ async function runAnalysis(eventId: string, priority: boolean): Promise<void> {
       memoryUsed,
       memoryCount: recall.experiences.length,
       degraded,
-      rawJson: JSON.stringify({ analysis, recallStatus: recall.status }),
+      rawJson: JSON.stringify({ analysis, recallStatus: recall.status, transferred }),
     },
     update: {
       riskLevel: analysis.risk_level,
@@ -112,7 +146,7 @@ async function runAnalysis(eventId: string, priority: boolean): Promise<void> {
       memoryUsed,
       memoryCount: recall.experiences.length,
       degraded,
-      rawJson: JSON.stringify({ analysis, recallStatus: recall.status }),
+      rawJson: JSON.stringify({ analysis, recallStatus: recall.status, transferred }),
     },
   });
 
@@ -285,7 +319,7 @@ async function buildRelationships(
  * NOT raw payloads. documentId = city event id → memory↔event linkage.
  */
 async function retainExperience(
-  event: { id: string; eventType: string; title: string; locationName: string; severity: string; description: string; dataOrigin: string; startedAt: Date },
+  event: { id: string; cityId: string; eventType: string; title: string; locationName: string; severity: string; description: string; dataOrigin: string; startedAt: Date },
   analysis: CityAnalysis,
   recall: { status: string; experiences: Array<{ id: string; text: string }> },
   degraded: boolean,
@@ -298,7 +332,7 @@ async function retainExperience(
 
   const parts: string[] = [];
   parts.push(
-    `On ${event.startedAt.toISOString().slice(0, 16)} (IST), ${event.title} — ${EVENT_TYPE_LABELS[event.eventType] ?? event.eventType}, severity ${event.severity}, location ${event.locationName} (origin: ${event.dataOrigin}).`
+    `On ${event.startedAt.toISOString().slice(0, 16)} (IST), ${event.title} — ${EVENT_TYPE_LABELS[event.eventType] ?? event.eventType}, severity ${event.severity}, location ${event.locationName}, ${getCityConfig(event.cityId).name} (origin: ${event.dataOrigin}).`
   );
   if (event.description) parts.push(`Conditions: ${sanitizeUntrusted(event.description).slice(0, 400)}`);
   if (analysis.risk_level !== "NONE") parts.push(`Assessed risk: ${analysis.risk_level}.`);
@@ -316,16 +350,18 @@ async function retainExperience(
     `severity:${event.severity}`,
     `zone:${event.locationName}`,
     `origin:${event.dataOrigin}`,
+    `city:${event.cityId}`, // city identity is preserved IN memory to prevent cross-city contamination
   ];
 
   const res = await HindsightMemoryService.retain_event_experience({
     eventId: event.id,
     fact,
-    context: `Living City operational experience — Hyderabad ${EVENT_TYPE_LABELS[event.eventType] ?? event.eventType}`,
+    context: `Living City operational experience — ${getCityConfig(event.cityId).name} ${EVENT_TYPE_LABELS[event.eventType] ?? event.eventType}`,
     occurredAt: event.startedAt,
     tags,
     metadata: {
       eventId: event.id,
+      cityId: event.cityId,
       eventType: event.eventType,
       severity: event.severity,
       riskLevel: analysis.risk_level,
@@ -333,14 +369,6 @@ async function retainExperience(
     },
     bankId,
   });
-
-  if (res.success) {
-    // Link event → its retained memory so the operator sees "what was learned".
-    await db.cityEvent.update({
-      where: { id: event.id },
-      data: { sourceEventId: event.sourceEventId, status: event.status },
-    }).catch(() => undefined);
-  }
 
   publish("memory.retained", {
     eventId: event.id,

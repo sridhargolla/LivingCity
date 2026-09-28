@@ -83,3 +83,68 @@ Work Log:
 
 Stage Summary:
 - PROJECT COMPLETE. All Definition-of-Done items verified except deployment (single-sandbox app; documented commands in README).
+
+---
+Task ID: 4 (Phase 1 — Master Upgrade audit)
+Agent: lead (main orchestrator)
+Task: Audit existing repo for the LIVING CITY production master upgrade (17 phases)
+
+Work Log:
+- Read worklog (tasks 0-3), package.json, prisma/schema.prisma, server/types.ts, env.ts, HindsightMemoryService.ts, analyzeEvent.ts, reasoning.ts, ingest.ts, runFeeds.ts, adapter.ts, scenarios.ts, eventBus.ts, useRealtime.ts, city-api.ts, page.tsx, instrumentation.ts.
+- Runtime verified: dev server UP :3000, Hindsight UP :8888 (bank living-city-hyderabad), SQLite 8 events, all APIs 200.
+
+Audit verdict:
+- WORKING/REUSE: Prisma models (CityEvent/EventRelationship/EventOutcome/AnalysisResult/MemoryOperation/FeedRun); HindsightMemoryService (real client, retain/recall/reflect, bank isolation); z-ai LLM reasoning (injection-defended, zod-validated); ingestion providers (open-meteo, AQ, wttr.in fallback, openweather optional) + normalize/dedup + runFeeds; analysis pipeline recall→LLM→relationships→retain; SSE bus + stream route + useRealtime; demo seed/before-after (isolated DEMO_BANK); reports API; 11 city components; Leaflet dark map; 21 tests; instrumentation scheduler.
+- MISSING (this upgrade): formal City Agent chat (P2 evidence-first chat), persistent conversations (P5), Ask-the-City copilot + intents (P6), chat→map actions (P7), evidence/provenance model+UI (P4), anomaly detection (P10), City Learning dashboard (P11), human feedback (P12), scenario/what-if (P13), multi-city (P14), cross-city transfer (P15), voice (P16), 3D view (P17), city-state operator cards w/ provenance, autonomous simulated incidents.
+- UNNECESSARY: none to remove. BROKEN: none found.
+
+Stage Summary:
+- Plan: extend schema (City, Conversation, ConversationMessage, HumanFeedback, Anomaly, ScenarioRun); city registry + per-city Hindsight banks; city-aware ingestion/analysis; evidence builder; agent chat (deterministic intents + LLM, validated actions); anomaly/learning/scenario/simulator services; new APIs; UI tabs COPILOT|EVENT|MEMORY|LEARNING|FEEDS; Three.js 3D; Web Speech voice. Critical invariants tested: SIMULATED≠LIVE, no fabricated evidence, cross-city isolation.
+
+---
+Task ID: 17-a
+Agent: general-purpose subagent (17-a)
+Task: 3D city view component
+
+Work Log:
+- Read worklog + audited contract sources: src/lib/city-api.ts (PublicEvent — imported type-only, not redefined), src/server/types.ts (HYDERABAD_ZONES), package.json (three ^0.186.1 + @types/three ^0.186.0), tsconfig (strict), eslint.config.mjs.
+- Created EXACTLY ONE file: src/components/map/City3D.tsx (client component, contract City3DProps { events, selectedId, onSelect } with named export City3D).
+- Scene: bg/fog #05080f (fog 120→400), ambient #334155 @1.2, directional #64748b, ground plane #070d18 + GridHelper #16203a, ACESFilmic tone mapping, antialias, pixelRatio min(dpr,2), camera fov 50 @ (46,44,70) → target (7,0.5,0).
+- 7 district clusters (west/central/north/east/oldcity/secunderabad/south) mapped x=(lon-78.40)*100, z=-(lat-17.40)*100 (north = -z): rounded plate #0d1526 + glowing rim #1c2942 + 6-10 buildings (BoxGeometry, #131c30, emissive edges #1e293b) with heights from mulberry32 seeded by zone-id hash (stable layout) + canvas-sprite district labels (slate-500) above each cluster.
+- Event layer: dedicated eventGroup rebuilt in a SECOND useEffect (no scene reinit) — for each ACTIVE/DEVELOPING event with non-null lat/lon: emissive pillar colored by dataOrigin (LIVE #34d399, SIMULATED #c084fc, USER_REPORTED #fbbf24), height by severity (INFO 1.2 → CRITICAL 7), pulsing base ring (scale+opacity anim), selected → brighter emissive + additive vertical beam; camera never auto-moves on selection.
+- Rain: ~400 LineSegments streaks over city bbox, recycled below ground, opacity 0.25, only while an active WEATHER_RAIN event exists (added/removed via syncRain).
+- Interaction: OrbitControls (damping, maxPolarAngle 1.45, dist 30-300, autoRotate 0.4 that stops on 'start' and resumes after 10s idle on 'end'); pointerdown+up drag-gated raycast → onSelect(id); hover → pointer cursor + imperative HTML tooltip (title + origin badge, textContent only, no injection); RESET VIEW button tweens camera+target back (easeInOutCubic 0.9s).
+- React integration: single init useEffect with full dispose (RAF, ResizeObserver, controls, traverse-dispose geometries/materials/textures, renderer.dispose + forceContextLoss), ResizeObserver resize, rAF loop paused on document.hidden and resumed with clock reset; init wrapped in try/catch → graceful fallback div "3D view unavailable — 2D map remains available."
+- Overlay UI (pointer-events-none): top-left "🧊 3D CITY — ILLUSTRATIVE VIEW" badge (text-[10px] tracking-widest purple-300/80), bottom-left watermark "ILLUSTRATIVE VIEW — not a physical model", bottom-right legend (3 origin colors + severity-height note), top-right pointer-events-auto reset button (#1c2942 border / #0d1526 bg / hover:text-cyan-300).
+- Fixes during verification: (1) react-hooks/set-state-in-effect lint error → deferred failure setState via rAF with cleanup cancel; (2) THREE.RoundedBoxGeometry namespace error → use direct named import.
+- Verification: `bun run lint` → PASS (clean). `bunx tsc --noEmit` filtered for City3D → ZERO errors. No other files modified; dev server not run.
+
+Stage Summary:
+- City3D.tsx delivered per exact contract: illustrative dark 3D city (7 deterministic district clusters), origin/severity-coded event pillars with pulse/beam selection, conditional rain overlay, orbit + hover/click interaction with idle-resume autorotate and reset tween, watermark + legend + badge overlay, full dispose/resize/visibility handling, WebGL fallback, strict TS (no any), lint clean, 0 City3D tsc errors.
+- Pre-existing tsc errors in OTHER files (not mine, unfixed): examples/websocket/{server,frontend}.tsx (missing socket.io types), skills/image-edit/scripts/image-edit.ts (TS2561), skills/stock-analysis-skill/src/analyzer.ts (TS2322), src/app/api/events/stream/route.ts (TS2578 unused ts-expect-error), src/app/api/simulator/route.ts (TS2724 SCENARIO_LABELS), src/server/analysis/analyzeEvent.ts (TS2339 sourceEventId/status — likely mid-flight cityId migration), tests/unit.test.ts (bun:test types).
+
+---
+Task ID: 5 (Phases 2-17 — production master upgrade implementation)
+Agent: lead (main orchestrator)
+Task: Implement and verify the 17-phase LIVING CITY master upgrade
+
+Work Log:
+- Schema: added City, Conversation, ConversationMessage, HumanFeedback, Anomaly, ScenarioRun; CityEvent.cityId — pushed to SQLite.
+- PHASE 14/15: src/server/cities.ts (registry: hyderabad primary + mumbai, bengaluru; bankIdForCity per-city Hindsight banks); analyzeEvent uses per-city banks, retains city: tag inside memory, cross-city TRANSFERRED EXPERIENCE only when local recall is empty (labeled, never local fact).
+- PHASE 4: src/server/evidence.ts — deterministic evidence from stored events, SOURCE_INFO registry, isSafeExternalUrl allowlist; /api/evidence; EvidenceDialog with claim/source/observed/location/raw/event-id + [View Event][View on Map][Open Source].
+- PHASE 2/6/7: src/server/agent/{intents,context,chat,retain}.ts — deterministic intents (18), context builder (bounded), copilot with memory-gated Hindsight recall, evidence-first deterministic fast paths (status/weather/evidence/source/map/memory/pattern/anomaly/learning/remember/forget/search), LLM fallback (zod-validated, event refs verified against DB, actions schema-validated), 11 structured actions; /api/conversations CRUD + /messages.
+- PHASE 3: providers made city-aware (open-meteo, AQ, wttr.in fallback, openweather); added metadata payloads (usAqi/precipMm/temperatureC…) enabling anomalies + state cards; runAllFeeds loops all cities; /api/events + /api/city + /api/reports cityId-scoped.
+- PHASE 10: src/server/anomaly.ts — baselines from own history (AQI/PRECIP value deviation ≥35%, EVENT_RATE 2.5× spike), observedFacts vs possibleExplanation (labeled hypothesis), Hindsight recall of similar anomalies, investigate/resolve; AnomalyBanner.
+- PHASE 11: src/server/learning.ts + /api/city/learning + LearningPanel (significant events, similar experiences, patterns, confirmed lessons, retained experiences, unresolved questions — all traceable).
+- PHASE 12: HumanFeedback model + /api/events/[id]/feedback; CONFIRMED/REJECTED retained into city bank tagged human-feedback/correction; UI buttons in EventDetailPanel.
+- PHASE 13: src/server/scenario.ts — OBSERVED/HISTORICAL/SCENARIO-labeled considerations, Hindsight recall + LLM synthesis + deterministic fallback; ScenarioRun persisted; WhatIfDialog.
+- Simulated city engine: src/server/simulator.ts — 7 scenario generators (heavy_rain, emergency, transit_delay, grid_alert, road_closure, crowd, clearing_weather), autonomous CITY PULSE timer (90s), city-relative simulated sectors, clearing resolves simulated rain; /api/simulator; /api/city/state provenance cards (LIVE/SIMULATED/USER_REPORTED/NO_DATA).
+- PHASE 16: src/hooks/useVoice.ts — Web Speech recognition (permission/states/fallback) + speechSynthesis output, same chat pipeline; hydration-safe.
+- PHASE 17: src/components/map/City3D.tsx (subagent 17-a) — Three.js illustrative 3D: districts, severity/origin pillars, rain overlay, raycast select, OrbitControls, RESET VIEW, watermark; same event system as 2D.
+- Frontend: ChatPanel (conversations, evidence chips, action buttons, voice), CityStateStrip, AnomalyBanner, LearningPanel, EvidenceDialog, WhatIfDialog, right tabs EVENT|MEMORY|LEARNING|FEEDS, header (city switcher, 2D/3D, CITY PULSE), page.tsx action executor with URL allowlist.
+- Fixed: hydration mismatch (window-dependent flags → mount-gated), simulator candidates missing cityId (Mumbai events leaked to hyderabad — fixed + sectors made city-relative), api.city missing cityId (header stats), provider metadata absent (broke AQI/precip analytics), dead event-update in retainExperience, SCENARIO_LABELS export, unused ts-expect-error.
+- Verification: lint clean, tsc 0 app errors, 32/32 tests (incl. CRITICAL invariants: SIMULATED≠LIVE, no fabricated evidence, city-bank isolation, action schema), API-level tests (copilot Q&A, evidence, memory recall, scenario w/ 8 memories, feedback retained:true, simulator trigger, Mumbai isolation LIVE:1/SIM:0), browser-verified (map+markers, event detail, CONFIRMED→retained toast, What-If run w/ memory badge, Learning stats, FEEDS honest health incl. 429 + fallback, 3D view, chat E2E "Is it raining?"/"What did we learn?", Mumbai bank isolation + own-memory recall, mobile 390px layout, footer gap 0).
+
+Stage Summary:
+- All 17 phases implemented and verified. Hindsight remains the central memory layer: per-city banks, memory-gated copilot recall, human-confirmed/corrected experience retention, anomaly memory recall, cross-city transfer labeled TRANSFERRED EXPERIENCE.
+- Live = Open-Meteo weather+AQI (3 cities) w/ wttr.in fallback; traffic/transit/grid have no free legitimate source → honest NO_DATA cards, never faked.

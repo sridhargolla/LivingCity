@@ -5,6 +5,7 @@ import { db } from "@/lib/db";
 import { buildNormalizedEvent, type NormalizedEvent } from "./normalize";
 import { publish } from "@/server/realtime/eventBus";
 import { analyzeEventInBackground } from "@/server/analysis/analyzeEvent";
+import { detectAnomalies } from "@/server/anomaly";
 import type { FeedId } from "@/server/types";
 
 export interface IngestResult {
@@ -17,6 +18,8 @@ export interface CandidateInput {
   source: string;
   sourceEventId?: string | null;
   dataOrigin: "LIVE" | "SIMULATED" | "USER_REPORTED";
+  /** Owning city — multi-city isolation. Defaults to the primary city. */
+  cityId?: string;
   eventType: string;
   title: string;
   description?: string;
@@ -50,7 +53,9 @@ export async function ingestCandidates(feedId: FeedId, candidates: CandidateInpu
     const normalized: NormalizedEvent | null = buildNormalizedEvent(c);
     if (!normalized) continue;
     try {
-      const created = await db.cityEvent.create({ data: toPrismaData(normalized) });
+      const created = await db.cityEvent.create({
+        data: { ...toPrismaData(normalized), cityId: c.cityId ?? "hyderabad" },
+      });
       accepted += 1;
       eventIds.push(created.id);
       publish("event.created", { event: publicEvent(created) });
@@ -81,6 +86,14 @@ export async function ingestCandidates(feedId: FeedId, candidates: CandidateInpu
     },
   });
 
+  // Background anomaly screening for the cities that received events (fire-and-forget).
+  if (eventIds.length > 0) {
+    const cityId = candidates[0]?.cityId ?? "hyderabad";
+    setTimeout(() => {
+      detectAnomalies(cityId).catch(() => undefined);
+    }, 2500);
+  }
+
   return { accepted, duplicates, eventIds };
 }
 
@@ -109,6 +122,7 @@ function toPrismaData(n: NormalizedEvent) {
 /** Serialize an event row for public consumption (never leak raw payloads wholesale). */
 export function publicEvent(e: {
   id: string;
+  cityId?: string;
   source: string;
   dataOrigin: string;
   eventType: string;
@@ -132,6 +146,7 @@ export function publicEvent(e: {
   } catch {}
   return {
     id: e.id,
+    cityId: e.cityId ?? "hyderabad",
     source: e.source,
     dataOrigin: e.dataOrigin,
     eventType: e.eventType,

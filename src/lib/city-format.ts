@@ -63,3 +63,19 @@ export const EVENT_ICONS: Record<string, string> = {
   POWER_OUTAGE: "🔌",
   USER_REPORT: "📋",
 };
+
+/** Client-side mirror of the server URL allowlist (defense in depth).
+ *  LLM/event content must never force navigation to untrusted destinations. */
+const REGISTRABLE_DOMAINS = ["open-meteo.com", "wttr.in", "openweathermap.org", "openstreetmap.org"];
+
+export function isSafeExternalUrlClient(raw: string | null | undefined): boolean {
+  if (!raw) return false;
+  try {
+    const u = new URL(raw);
+    if (u.protocol !== "https:") return false;
+    const host = u.host.toLowerCase();
+    return REGISTRABLE_DOMAINS.some((d) => host === d || host.endsWith(`.${d}`));
+  } catch {
+    return false;
+  }
+}

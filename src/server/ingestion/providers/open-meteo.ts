@@ -67,7 +67,7 @@ function num(v: unknown): number | null {
 }
 
 /** Map a snapshot to weather event candidates (empty array = no event-worthy conditions). */
-export function openMeteoToEvents(s: OpenMeteoSnapshot): Array<{
+export function openMeteoToEvents(s: OpenMeteoSnapshot, cityName: string = env.city.name): Array<{
   eventType: string;
   title: string;
   description: string;
@@ -84,6 +84,7 @@ export function openMeteoToEvents(s: OpenMeteoSnapshot): Array<{
     confidence: number;
     tags: string[];
     status: string;
+    metadata?: Record<string, unknown>;
   }> = [];
 
   // 1. Current precipitation
@@ -91,12 +92,13 @@ export function openMeteoToEvents(s: OpenMeteoSnapshot): Array<{
     const band = rainSeverity(s.precipMm);
     events.push({
       eventType: "WEATHER_RAIN",
-      title: `${band.label} — ${env.city.name}`,
+      title: `${band.label} — ${cityName}`,
       description: `Open-Meteo observed ${s.precipMm.toFixed(1)} mm/h precipitation at ${s.observedIso} (IST). Temperature ${s.temperatureC ?? "?"}°C, humidity ${s.humidityPct ?? "?"}%, wind ${s.windKmh ?? "?"} km/h. Historically associated with water accumulation and traffic slowdown on major corridors.`,
       severity: band.severity,
       confidence: 0.95,
       tags: ["rain", `precip-${s.precipMm.toFixed(1)}mm`, "open-meteo"],
       status: "ACTIVE",
+      metadata: { precipMm: s.precipMm, temperatureC: s.temperatureC, humidityPct: s.humidityPct, windKmh: s.windKmh, weatherCode: s.weatherCode },
     });
   }
 
@@ -104,12 +106,13 @@ export function openMeteoToEvents(s: OpenMeteoSnapshot): Array<{
   if (s.weatherCode !== null && s.weatherCode >= 95) {
     events.push({
       eventType: "WEATHER_STORM",
-      title: `Thunderstorm Activity — ${env.city.name}`,
+      title: `Thunderstorm Activity — ${cityName}`,
       description: `Open-Meteo weather code ${s.weatherCode} indicates thunderstorm conditions. Wind ${s.windKmh ?? "?"} km/h.`,
       severity: "MAJOR",
       confidence: 0.9,
       tags: ["storm", "thunder", "open-meteo"],
       status: "ACTIVE",
+      metadata: { weatherCode: s.weatherCode, windKmh: s.windKmh, weatherDesc: "thunderstorm" },
     });
   }
 
@@ -117,12 +120,13 @@ export function openMeteoToEvents(s: OpenMeteoSnapshot): Array<{
   if (s.temperatureC !== null && s.temperatureC >= 40) {
     events.push({
       eventType: "WEATHER_HEAT",
-      title: `Heat Stress — ${env.city.name} (${s.temperatureC.toFixed(0)}°C)`,
+      title: `Heat Stress — ${cityName} (${s.temperatureC.toFixed(0)}°C)`,
       description: `Open-Meteo observed ${s.temperatureC.toFixed(1)}°C ambient temperature with ${s.humidityPct ?? "?"}% humidity.`,
       severity: s.temperatureC >= 43 ? "MAJOR" : "MODERATE",
       confidence: 0.95,
       tags: ["heat", "temperature", "open-meteo"],
       status: "ACTIVE",
+      metadata: { temperatureC: s.temperatureC, humidityPct: s.humidityPct, weatherDesc: "heat stress" },
     });
   }
 
@@ -130,12 +134,13 @@ export function openMeteoToEvents(s: OpenMeteoSnapshot): Array<{
   if (s.forecast && s.forecast.maxPrecipProb >= 70 && s.forecast.expectedMm >= 1.0) {
     events.push({
       eventType: "WEATHER_RAIN",
-      title: `Rain Likely Within 6 Hours — ${env.city.name}`,
+      title: `Rain Likely Within 6 Hours — ${cityName}`,
       description: `Open-Meteo hourly forecast shows ${s.forecast.maxPrecipProb}% max precipitation probability and ~${s.forecast.expectedMm.toFixed(1)} mm expected accumulation over the next 6 hours. This is a FORECAST signal, not observed rainfall.`,
       severity: s.forecast.expectedMm >= 7.6 ? "MODERATE" : "MINOR",
       confidence: 0.6,
       tags: ["rain", "forecast", "open-meteo"],
       status: "DEVELOPING",
+      metadata: { forecastMaxProb: s.forecast.maxPrecipProb, expectedMm: s.forecast.expectedMm, weatherDesc: "forecast rain" },
     });
   }
 

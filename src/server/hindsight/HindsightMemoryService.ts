@@ -14,6 +14,7 @@
 import { HindsightClient } from "@vectorize-io/hindsight-client";
 import { db } from "@/lib/db";
 import { env } from "@/server/env";
+import { bankIdForCity } from "@/server/cities";
 
 export interface HindsightHealth {
   available: boolean;
@@ -247,6 +248,35 @@ export const HindsightMemoryService = {
         detail: { error: msg },
       });
       return { status: "UNAVAILABLE", experiences: [], error: msg };
+    }
+  },
+
+  /**
+   * CROSS-CITY RECALL (PHASE 15) — explicitly query ANOTHER city's bank.
+   * Results are labeled with the source city so the UI can surface them as
+   * TRANSFERRED EXPERIENCE — never silently mixed into local facts.
+   */
+  async recall_from_other_city(input: {
+    fromCityId: string;
+    query: string;
+    limit?: number;
+  }): Promise<RecallOutcome & { cityId: string }> {
+    const bankId = bankIdForCity(input.fromCityId);
+    if (!env.hindsight.enabled) return { status: "UNAVAILABLE", experiences: [], cityId: input.fromCityId };
+    try {
+      const c = getClient();
+      const res = await withTimeout(
+        c.recall(bankId, input.query, {
+          types: ["world", "experience", "observation"],
+          maxTokens: 1024,
+        }),
+        20000
+      );
+      const raw = (res as { results?: Array<Record<string, unknown>> }).results ?? [];
+      const experiences = mapRecallResults(raw).slice(0, input.limit ?? 4);
+      return { status: "SUCCESS", experiences, cityId: input.fromCityId };
+    } catch {
+      return { status: "UNAVAILABLE", experiences: [], cityId: input.fromCityId };
     }
   },
 

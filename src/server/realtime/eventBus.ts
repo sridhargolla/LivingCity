@@ -11,6 +11,11 @@ export type RealtimeEventName =
   | "event.relationship.created"
   | "feed.status_changed"
   | "outcome.recorded"
+  | "anomaly.detected"
+  | "anomaly.updated"
+  | "feedback.recorded"
+  | "scenario.completed"
+  | "city.state.updated"
   | "heartbeat";
 
 export interface RealtimePayload {

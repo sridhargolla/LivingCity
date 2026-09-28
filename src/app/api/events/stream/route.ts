@@ -40,7 +40,6 @@ export async function GET() {
           controller.close();
         } catch {}
       };
-      // @ts-expect-error signal available at runtime
       (controller as unknown as { signal?: AbortSignal }).signal?.addEventListener?.("abort", cleanup);
       // Next.js aborts the request via request.signal; also hard-stop after 30 min
       setTimeout(cleanup, 30 * 60 * 1000);

@@ -14,6 +14,7 @@ datasource db {
 /// data_origin distinguishes LIVE | SIMULATED | USER_REPORTED — never display simulated data as live.
 model CityEvent {
   id             String    @id @default(cuid())
+  cityId         String    @default("hyderabad") // multi-city scoping
   source         String // e.g. "open-meteo", "wttr.in", "open-meteo-air-quality", "operator"
   sourceEventId  String? // provider-native id / dedup key component
   dataOrigin     String    @default("LIVE") // LIVE | SIMULATED | USER_REPORTED
@@ -39,11 +40,14 @@ model CityEvent {
   relationshipsTo   EventRelationship[] @relation("ToEvent")
   outcomes          EventOutcome[]
   analyses          AnalysisResult[]
+  feedback          HumanFeedback[]
+  scenarioRuns      ScenarioRun[]
 
   @@index([eventType])
   @@index([dataOrigin])
   @@index([status])
   @@index([observedAt])
+  @@index([cityId])
 }
 
 /// Directed relationship between events (current ↔ historical).
@@ -119,7 +123,7 @@ model MemoryOperation {
 /// Feed run health tracking — real feed status, not fabricated.
 model FeedRun {
   id          String   @id @default(cuid())
-  feedId      String // open-meteo | open-meteo-air-quality | wttr-in | openweather | report-portal | demo-scenarios
+  feedId      String // open-meteo | open-meteo-air-quality | wttr-in | openweather | report-portal | demo-scenarios | simulator
   status      String // HEALTHY | DEGRADED | FAILED
   durationMs  Int      @default(0)
   eventsFound Int      @default(0)
@@ -128,4 +132,104 @@ model FeedRun {
   createdAt   DateTime @default(now())
 
   @@index([feedId, createdAt])
+}
+
+/// City registry — multi-city architecture. Each city owns its data, events and Hindsight bank.
+model City {
+  id        String   @id @default(cuid())
+  cityId    String   @unique // "hyderabad" — stable slug
+  name      String
+  country   String
+  timezone  String
+  latitude  Float
+  longitude Float
+  primary   Boolean  @default(false) // the initially-configured city
+  config    String   @default("{}") // JSON — provider availability etc.
+  createdAt DateTime @default(now())
+}
+
+/// Persistent operator conversation (ChatGPT-style). Conversation memory ≠ city memory:
+/// conversations are stored here; only distilled experience is retained into Hindsight.
+model Conversation {
+  id          String   @id @default(cuid())
+  cityId      String   @default("hyderabad")
+  title       String   @default("New discussion")
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  messages    ConversationMessage[]
+
+  @@index([cityId, updatedAt])
+}
+
+/// One message in a conversation. Structured refs keep answers traceable.
+model ConversationMessage {
+  id             String   @id @default(cuid())
+  conversationId String
+  role           String // user | assistant
+  content        String
+  intent         String? // detected/captured intent
+  actions        String   @default("[]") // JSON — validated structured actions
+  eventRefs      String   @default("[]") // JSON array of event ids
+  memoryRefs     String   @default("[]") // JSON array of Hindsight memory ids
+  evidenceRefs   String   @default("[]") // JSON array of evidence objects
+  degraded       Boolean  @default(false) // true when deterministic fallback answered
+  createdAt      DateTime @default(now())
+  conversation   Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+
+  @@index([conversationId, createdAt])
+}
+
+/// Human confirmation/rejection of AI observations. Keeps the human in the loop and
+/// prevents repeated unsupported inference (rejections are retained as corrections).
+model HumanFeedback {
+  id               String   @id @default(cuid())
+  eventId          String
+  analysisId       String?
+  verdict          String // CONFIRMED | REJECTED | INVESTIGATE | DISMISSED
+  observation      String   @default("") // the AI claim being judged
+  note             String   @default("")
+  retainedToMemory Boolean  @default(false)
+  createdAt        DateTime @default(now())
+  event            CityEvent @relation(fields: [eventId], references: [id], onDelete: Cascade)
+
+  @@index([eventId])
+}
+
+/// Detected deviation from baseline. Investigation distinguishes OBSERVED FACT
+/// from POSSIBLE EXPLANATION — never asserts causation.
+model Anomaly {
+  id               String    @id @default(cuid())
+  cityId           String    @default("hyderabad")
+  metric           String // AQI | PRECIP | EVENT_RATE | TRAFFIC_SIGNAL
+  observedValue    Float
+  baselineValue    Float
+  deviation        Float // observed / baseline ratio (or absolute for rate)
+  direction        String // UP | DOWN
+  description      String
+  status           String    @default("OPEN") // OPEN | INVESTIGATING | RESOLVED
+  observedFacts    String    @default("[]") // JSON — what is directly observed
+  possibleExplanation String @default("") // clearly-labeled hypothesis, not fact
+  relatedEventIds  String    @default("[]") // JSON array
+  memoryRecallJson String    @default("{}") // JSON — Hindsight recall for similar anomalies
+  createdAt        DateTime  @default(now())
+  resolvedAt       DateTime?
+
+  @@index([cityId, createdAt])
+}
+
+/// What-if scenario analysis run. Scenario considerations are clearly labeled
+/// OBSERVED | HISTORICAL | SCENARIO and never presented as guaranteed outcomes.
+model ScenarioRun {
+  id            String   @id @default(cuid())
+  cityId        String   @default("hyderabad")
+  eventId       String?
+  question      String
+  assumptions   String   @default("[]") // JSON array
+  considerations String  @default("[]") // JSON array of {label, text}
+  summary       String   @default("")
+  memoryUsed    Boolean  @default(false)
+  memoryCount   Int      @default(0)
+  degraded      Boolean  @default(false)
+  createdAt     DateTime @default(now())
+  event         CityEvent? @relation(fields: [eventId], references: [id], onDelete: SetNull)
 }

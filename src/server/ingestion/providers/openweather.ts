@@ -16,11 +16,11 @@ export function isConfigured(): boolean {
   return Boolean(env.weather.openWeatherApiKey);
 }
 
-export async function fetchOpenWeather() {
+export async function fetchOpenWeather(lat = env.city.lat, lon = env.city.lon) {
   if (!isConfigured()) {
     return { ok: false as const, error: "WEATHER_API_KEY not configured — OpenWeather adapter dormant", durationMs: 0 };
   }
-  const url = `https://api.openweathermap.org/data/2.5/weather?q=Hyderabad,IN&appid=${env.weather.openWeatherApiKey}&units=metric`;
+  const url = `https://api.openweathermap.org/data/2.5/weather?lat=${lat}&lon=${lon}&appid=${env.weather.openWeatherApiKey}&units=metric`;
   return fetchWithResilience<OpenWeatherSnapshot>(
     "openweather",
     url,

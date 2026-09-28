@@ -35,18 +35,19 @@ function num(v: unknown): number | null {
   return typeof v === "number" && isFinite(v) ? v : null;
 }
 
-export function airQualityToEvents(s: AirQualitySnapshot) {
+export function airQualityToEvents(s: AirQualitySnapshot, cityName: string = env.city.name) {
   if (s.usAqi === null || s.usAqi < 51) return []; // only event-worthy when Moderate+
   const band = aqiSeverity(s.usAqi);
   return [
     {
       eventType: "AIR_QUALITY",
-      title: `${band.label} — ${env.city.name}`,
+      title: `${band.label} — ${cityName}`,
       description: `US AQI ${Math.round(s.usAqi)} (${band.category}). PM2.5 ${s.pm25 ?? "?"} μg/m³, PM10 ${s.pm10 ?? "?"} μg/m³ at ${s.observedIso} (IST). Source: Open-Meteo Air Quality API (CAMS model).`,
       severity: band.severity,
       confidence: 0.9,
       tags: ["air-quality", `aqi-${Math.round(s.usAqi)}`, "open-meteo-air-quality"],
       status: "ACTIVE",
+      metadata: { usAqi: s.usAqi, pm25: s.pm25, pm10: s.pm10, observedIso: s.observedIso },
     },
   ];
 }

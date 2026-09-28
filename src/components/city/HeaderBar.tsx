@@ -3,6 +3,13 @@
 import { ORIGIN_META } from "@/lib/city-format";
 import type { CitySummary } from "@/lib/city-api";
 
+export interface CityOption {
+  cityId: string;
+  name: string;
+  country: string;
+  primary: boolean;
+}
+
 interface HeaderBarProps {
   summary: CitySummary | null;
   realtimeConnected: boolean;
@@ -12,6 +19,13 @@ interface HeaderBarProps {
   onOpenReport: () => void;
   onOpenDemo: () => void;
   refreshing?: boolean;
+  cities: CityOption[];
+  activeCityId: string;
+  onCityChange: (cityId: string) => void;
+  view: "2D" | "3D";
+  onViewChange: (v: "2D" | "3D") => void;
+  simulatorRunning: boolean;
+  onSimulatorToggle: () => void;
 }
 
 export function HeaderBar({
@@ -22,11 +36,19 @@ export function HeaderBar({
   onModeChange,
   onOpenReport,
   onOpenDemo,
+  cities,
+  activeCityId,
+  onCityChange,
+  view,
+  onViewChange,
+  simulatorRunning,
+  onSimulatorToggle,
 }: HeaderBarProps) {
   const s = summary?.stats;
+  const cityName = cities.find((c) => c.cityId === activeCityId)?.name ?? summary?.city ?? "Hyderabad";
   return (
     <header className="sticky top-0 z-[1400] border-b border-[#1c2942] bg-[#05080f]/95 backdrop-blur">
-      <div className="mx-auto flex max-w-[1600px] flex-wrap items-center gap-x-6 gap-y-3 px-4 py-3">
+      <div className="mx-auto flex max-w-[1600px] flex-wrap items-center gap-x-4 gap-y-3 px-4 py-3">
         {/* identity */}
         <div className="flex items-center gap-3">
           <div className="flex h-10 w-10 items-center justify-center rounded-lg border border-cyan-500/30 bg-cyan-500/10 text-lg">
@@ -37,10 +59,27 @@ export function HeaderBar({
               LIVING CITY
             </h1>
             <p className="text-[11px] uppercase tracking-[0.28em] text-cyan-400/80">
-              Hyderabad — a city that remembers
+              {cityName} — a city that remembers
             </p>
           </div>
         </div>
+
+        {/* city switcher */}
+        <label className="flex items-center gap-2 rounded-md border border-[#1c2942] bg-[#0a101c] px-2.5 py-1.5" title="City context — each city has isolated events and its own Hindsight memory bank">
+          <span className="text-[9px] font-bold uppercase tracking-[0.18em] text-slate-500">City</span>
+          <select
+            value={activeCityId}
+            onChange={(e) => onCityChange(e.target.value)}
+            className="bg-transparent text-xs font-semibold text-slate-200 focus:outline-none"
+            aria-label="Select city"
+          >
+            {cities.map((c) => (
+              <option key={c.cityId} value={c.cityId} className="bg-[#0d1526]">
+                {c.name}
+              </option>
+            ))}
+          </select>
+        </label>
 
         {/* live indicator */}
         <div className="flex items-center gap-2 rounded-md border border-[#1c2942] bg-[#0a101c] px-3 py-1.5">
@@ -61,7 +100,6 @@ export function HeaderBar({
           <Stat label="Active" value={s?.active} accent="text-rose-300" />
           <Stat label="Developing" value={s?.developing} accent="text-amber-300" />
           <Stat label="Resolved" value={s?.resolved} accent="text-emerald-300" />
-          <Stat label="Total" value={s?.total} accent="text-slate-200" />
           <div className="hidden items-center gap-2 xl:flex">
             {(["LIVE", "SIMULATED", "USER_REPORTED"] as const).map((o) => (
               <span
@@ -75,8 +113,23 @@ export function HeaderBar({
           </div>
         </div>
 
-        {/* mode + actions */}
-        <div className="flex items-center gap-2">
+        {/* view + mode + actions */}
+        <div className="flex flex-wrap items-center gap-2">
+          <div className="flex overflow-hidden rounded-md border border-[#1c2942]" role="tablist" aria-label="Map view">
+            {(["2D", "3D"] as const).map((v) => (
+              <button
+                key={v}
+                role="tab"
+                aria-selected={view === v}
+                onClick={() => onViewChange(v)}
+                className={`px-2.5 py-1.5 text-xs font-semibold tracking-wider transition-colors ${
+                  view === v ? "bg-purple-500/15 text-purple-300" : "bg-transparent text-slate-500 hover:text-slate-300"
+                }`}
+              >
+                {v === "2D" ? "2D MAP" : "🧊 3D"}
+              </button>
+            ))}
+          </div>
           <div className="flex overflow-hidden rounded-md border border-[#1c2942]" role="tablist" aria-label="Data mode">
             {(["ALL", "LIVE"] as const).map((m) => (
               <button
@@ -92,6 +145,17 @@ export function HeaderBar({
               </button>
             ))}
           </div>
+          <button
+            onClick={onSimulatorToggle}
+            title="Autonomous simulated incidents — every generated event is labeled SIMULATED"
+            className={`rounded-md border px-3 py-1.5 text-xs font-semibold tracking-wider transition-colors ${
+              simulatorRunning
+                ? "border-purple-500/50 bg-purple-500/20 text-purple-200"
+                : "border-[#1c2942] bg-[#0d1526] text-slate-400 hover:border-purple-500/40 hover:text-purple-300"
+            }`}
+          >
+            {simulatorRunning ? "⏸ CITY PULSE" : "▶ CITY PULSE"}
+          </button>
           <button
             onClick={onOpenReport}
             className="rounded-md border border-[#1c2942] bg-[#0d1526] px-3 py-1.5 text-xs font-semibold tracking-wider text-slate-300 transition-colors hover:border-cyan-500/40 hover:text-cyan-300"

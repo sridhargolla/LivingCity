@@ -196,3 +196,35 @@ bun test            # unit tests (normalization, dedup, sanitization, severity, 
 ```
 
 Integration verification (Hindsight + DB + LLM + SSE) requires the running stack — see demo script above; the before/after demo is the end-to-end test of the memory loop.
+
+---
+
+## 3.5 Production master upgrade (Phases 1-17)
+
+The platform was upgraded through 17 phases. Every claim below is implemented and verified in this repository — nothing is aspirational.
+
+| Phase | Capability | Where |
+|---|---|---|
+| 2 | Hindsight ↔ City Agent (event analysis + copilot share one memory-backed pipeline) | `src/server/analysis/analyzeEvent.ts`, `src/server/agent/` |
+| 3 | Provider abstraction: Open-Meteo weather + AQI (live, verified), wttr.in fallback, OpenWeather optional key; retries, timeouts, dedup | `src/server/ingestion/` |
+| 4 | Evidence/provenance: deterministic evidence objects, raw-data panel, allowlisted source links | `src/server/evidence.ts`, `EvidenceDialog.tsx` |
+| 5 | Persistent conversations: create/search/rename/delete, message refs to events/memories/evidence | `Conversation` models, `ChatPanel.tsx` |
+| 6 | Ask the City: deterministic intents first, LLM only where useful; Hindsight gated to memory-relevant intents | `src/server/agent/chat.ts`, `intents.ts` |
+| 7 | Chat ↔ UI actions: 11 validated structured actions; URL allowlist; no LLM code execution | `ChatActionSchema`, `page.tsx handleChatAction` |
+| 8 | LIVE / SIMULATED / USER-REPORTED separation everywhere incl. chat + state cards | `ORIGIN_META`, `CityStateStrip` |
+| 9 | City memory graph from stored relationships (events + pattern edges) | `MemoryGraph.tsx`, `/api/city/patterns` |
+| 10 | Anomaly detection vs self-computed baselines (AQI, precip, event rate); OBSERVED FACT vs POSSIBLE EXPLANATION; Hindsight recall of similar anomalies | `src/server/anomaly.ts`, `AnomalyBanner.tsx` |
+| 11 | City Learning dashboard: significant events, patterns, lessons, retained experiences, unresolved questions — all traceable | `src/server/learning.ts`, `LearningPanel.tsx` |
+| 12 | Human feedback: Confirm / Reject / Investigate / Dismiss; confirmations and corrections retained to city memory, attributed to humans | `/api/events/[id]/feedback`, `EventDetailPanel` |
+| 13 | What-If scenario analysis with OBSERVED / HISTORICAL / SCENARIO labels; never a prediction | `src/server/scenario.ts`, `WhatIfDialog.tsx` |
+| 14 | Multi-city: registry (Hyderabad primary; Mumbai, Bengaluru weather/AQI-capable), per-city events, per-city Hindsight banks | `src/server/cities.ts` |
+| 15 | Cross-city learning: TRANSFERRED EXPERIENCE surfaced only when local memory is empty; local evidence stays authoritative | `recall_from_other_city` |
+| 16 | Voice: Web Speech input + speech synthesis output through the same copilot pipeline; text always available | `src/hooks/useVoice.ts` |
+| 17 | 3D city: illustrative Three.js view (districts, severity pillars, rain overlay) consuming the SAME event system as the 2D map | `src/components/map/City3D.tsx` |
+
+**Honesty invariants (tested in `tests/unit.test.ts`):**
+- SIMULATED events never become LIVE (origin preserved through evidence, chat, state cards).
+- Fabricated claims never receive verified evidence — evidence is built only from stored records.
+- City A memory never silently becomes City B fact — isolated Hindsight banks per city.
+
+**Simulated city engine ("City Pulse"):** autonomous SIMULATED incidents (heavy rain, emergency, transit delay, grid alert, road closure, crowd, clearing weather) run through the same real pipeline and are labeled everywhere. City-state cards derive from actual stored events only; when no provider exists a card honestly shows NO_DATA (traffic/transit/grid have no free legitimate live source — we do not fake them).

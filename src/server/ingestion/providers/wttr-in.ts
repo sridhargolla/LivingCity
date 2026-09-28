@@ -16,8 +16,8 @@ export interface WttrSnapshot {
   observationTime: string | null;
 }
 
-export async function fetchWttr(query = env.city.name) {
-  const url = `https://wttr.in/${encodeURIComponent(query)}?format=j1`;
+export async function fetchWttr(lat = env.city.lat, lon = env.city.lon, cityName = env.city.name) {
+  const url = `https://wttr.in/${lat},${lon}?format=j1`;
   return fetchWithResilience<WttrSnapshot>(
     "wttr-in",
     url,
@@ -54,13 +54,13 @@ function fnum(v: string | undefined): number | null {
   return v !== undefined && isFinite(n) ? n : null;
 }
 
-export function wttrToEvents(s: WttrSnapshot) {
+export function wttrToEvents(s: WttrSnapshot, cityName: string = env.city.name) {
   if (s.precipMm === null || s.precipMm < 0.5) return [];
   const band = rainSeverity(s.precipMm);
   return [
     {
       eventType: "WEATHER_RAIN",
-      title: `${band.label} — ${env.city.name} (wttr.in)`,
+      title: `${band.label} — ${cityName} (wttr.in)`,
       description: `wttr.in observed ${s.precipMm.toFixed(1)} mm precipitation (${s.weatherDesc ?? "n/a"}), ${s.tempC ?? "?"}°C, humidity ${s.humidityPct ?? "?"}%.`,
       severity: band.severity,
       confidence: 0.75,

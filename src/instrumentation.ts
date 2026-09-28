@@ -22,6 +22,10 @@ export async function register() {
   const globalForSched = globalThis as unknown as { __livingCityScheduler?: NodeJS.Timeout };
   if (globalForSched.__livingCityScheduler) return;
 
+  // Sync the city registry (PHASE 14) so City rows exist before any ingestion.
+  const { syncCities } = await import("@/server/cities");
+  await syncCities().catch((e) => console.error("[living-city] city sync failed", e));
+
   const { runAllFeeds } = await import("@/server/ingestion/runFeeds");
   const intervalMs = Number(process.env.FEED_POLL_INTERVAL_MS ?? "300000");
 

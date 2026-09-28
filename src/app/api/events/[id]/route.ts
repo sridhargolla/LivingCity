@@ -24,6 +24,7 @@ export async function GET(_req: NextRequest, ctx: { params: Promise<{ id: string
         memoryUsed: analyses[0].memoryUsed,
         memoryCount: analyses[0].memoryCount,
         degraded: analyses[0].degraded,
+        transferred: transferredOf(analyses[0].rawJson),
         createdAt: analyses[0].createdAt.toISOString(),
       }
     : null;
@@ -48,5 +49,17 @@ function safeParse(json: string): string[] {
     return Array.isArray(v) ? v : [];
   } catch {
     return [];
+  }
+}
+
+function transferredOf(rawJson: string): { cityName: string; text: string } | null {
+  try {
+    const raw = JSON.parse(rawJson) as { transferred?: { cityName?: string; text?: string } | null };
+    if (raw.transferred && raw.transferred.cityName) {
+      return { cityName: raw.transferred.cityName, text: raw.transferred.text ?? "" };
+    }
+    return null;
+  } catch {
+    return null;
   }
 }
