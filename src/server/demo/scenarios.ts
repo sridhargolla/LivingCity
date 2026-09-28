@@ -163,6 +163,7 @@ export async function runBeforeAfterDemo(): Promise<{ steps: DemoStepResult[]; e
 
   // Fresh, empty demo bank → Event A is guaranteed to run WITHOUT relevant memory.
   await resetDemoBank();
+  const runId = `run-${Date.now().toString(36)}`;
 
   // ── EVENT A: rain hits the Western Corridor ─────────────────────────────
   publish("analysis.started", { demo: "before-after", phase: "event-a" });
@@ -182,9 +183,16 @@ export async function runBeforeAfterDemo(): Promise<{ steps: DemoStepResult[]; e
       tags: ["demo", "rain"],
       metadata: { precipMm: 14, zone: "west", demoPhase: "A" },
       analysisPriority: "high",
+      fingerprintSalt: runId,
     },
   ]);
   const eventAId = a.eventIds[0];
+  if (!eventAId) {
+    return {
+      steps,
+      error: "Event A could not be created (rejected or duplicated by ingestion). The demo was not executed.",
+    };
+  }
   steps.push({
     step: "event-a",
     description: "EVENT A — heavy rain over the Western Corridor (SIMULATED, real pipeline).",
@@ -246,9 +254,16 @@ export async function runBeforeAfterDemo(): Promise<{ steps: DemoStepResult[]; e
       tags: ["demo", "rain"],
       metadata: { precipMm: 12, zone: "west", demoPhase: "B" },
       analysisPriority: "high",
+      fingerprintSalt: runId,
     },
   ]);
   const eventBId = b.eventIds[0];
+  if (!eventBId) {
+    return {
+      steps,
+      error: "Event B could not be created (rejected or duplicated by ingestion). Steps up to the outcome record are still valid.",
+    };
+  }
   steps.push({
     step: "event-b",
     description: "EVENT B — similar rain returns to the same corridor (SIMULATED, real pipeline).",

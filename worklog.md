@@ -68,3 +68,18 @@ Work Log:
 Stage Summary:
 - FULL MEMORY LOOP WORKING: real data → event → Hindsight recall → LLM analysis → relationships → Hindsight retain → SSE → UI.
 - Remaining: browser-verify demo dialog + report dialog, tests re-run, README accuracy pass, final report.
+
+---
+Task ID: 3
+Agent: lead (main orchestrator)
+Task: Final fixes + full browser verification + completion
+
+Work Log:
+- Fixed demo re-run dedup bug: added optional fingerprintSalt to normalize/CandidateInput; demo passes per-run salt; honest error guards if events rejected.
+- Fixed Leaflet z-index conflict (map panes z-400..800 sat above z-50 dialogs): header z-[1400], dialogs z-[2000], toast z-[2100].
+- Re-verified: lint clean, 21/21 tests pass, demo re-run works (Event A memories=0 → Event B memories=12).
+- Browser-verified end-to-end: demo dialog narrates all 5 steps live + before/after comparison cards; event detail shows real Hindsight recall cards (OBSERVATION/WORLD types + dates) + MEMORY UPDATED box; operator report dialog; LIVE ONLY toggle filters map/stream to LIVE origins only.
+- Final state: app healthy, hindsight available, 8 events (1 LIVE / 6 SIMULATED / 1 USER_REPORTED), Hindsight bank: 26 experiences, 13 retains, 30 recalls, 12 patterns, 27 relationships.
+
+Stage Summary:
+- PROJECT COMPLETE. All Definition-of-Done items verified except deployment (single-sandbox app; documented commands in README).
