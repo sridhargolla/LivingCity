@@ -1,0 +1,131 @@
+// LIVING CITY — Canonical city event model
+// SQLite via Prisma. Stores application state; agent memory lives in Hindsight.
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+/// Canonical normalized city event.
+/// data_origin distinguishes LIVE | SIMULATED | USER_REPORTED — never display simulated data as live.
+model CityEvent {
+  id             String    @id @default(cuid())
+  source         String // e.g. "open-meteo", "wttr.in", "open-meteo-air-quality", "operator"
+  sourceEventId  String? // provider-native id / dedup key component
+  dataOrigin     String    @default("LIVE") // LIVE | SIMULATED | USER_REPORTED
+  eventType      String // WEATHER_RAIN | AIR_QUALITY | FLOODING_REPORT | TRAFFIC_DISRUPTION | INFRASTRUCTURE | PUBLIC_SAFETY | HEAT | STORM | USER_REPORT
+  title          String
+  description    String    @default("")
+  latitude       Float?
+  longitude      Float?
+  locationName   String    @default("Hyderabad")
+  severity       String    @default("INFO") // INFO | MINOR | MODERATE | MAJOR | CRITICAL
+  confidence     Float     @default(0.8) // 0..1 — how confident we are in this event's validity
+  status         String    @default("ACTIVE") // ACTIVE | DEVELOPING | RESOLVED
+  startedAt      DateTime  @default(now())
+  observedAt     DateTime  @default(now())
+  resolvedAt     DateTime?
+  tags           String    @default("[]") // JSON string array
+  metadata       String    @default("{}") // JSON object — source payload snapshot (small)
+  fingerprint    String    @unique // dedup key: hash(source|eventType|locationBucket|attributes)
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+
+  relationshipsFrom EventRelationship[] @relation("FromEvent")
+  relationshipsTo   EventRelationship[] @relation("ToEvent")
+  outcomes          EventOutcome[]
+  analyses          AnalysisResult[]
+
+  @@index([eventType])
+  @@index([dataOrigin])
+  @@index([status])
+  @@index([observedAt])
+}
+
+/// Directed relationship between events (current ↔ historical).
+model EventRelationship {
+  id             String   @id @default(cuid())
+  fromEventId    String
+  toEventId      String
+  relation       String // RELATED | SIMILAR | RECURRING_PATTERN | POSSIBLE_ESCALATION | UNRELATED | NOVEL
+  confidence     Float    @default(0.5)
+  explanation    String   @default("")
+  basis          String   @default("deterministic") // deterministic | memory | llm
+  createdAt      DateTime @default(now())
+
+  fromEvent CityEvent @relation("FromEvent", fields: [fromEventId], references: [id], onDelete: Cascade)
+  toEvent   CityEvent @relation("ToEvent", fields: [toEventId], references: [id], onDelete: Cascade)
+
+  @@unique([fromEventId, toEventId, relation])
+  @@index([fromEventId])
+  @@index([toEventId])
+}
+
+/// Observed/recorded outcome of an event — what actually happened. Feeds Hindsight retain.
+model EventOutcome {
+  id          String   @id @default(cuid())
+  eventId     String
+  outcomeType String // WATERLOGGING | TRAFFIC_SLOWDOWN | BUS_DELAY | POWER_OUTAGE | HEALTH_ADVISORY | RESPONSE_EFFECTIVE | RESPONSE_INEFFECTIVE | OBSERVATION | OTHER
+  description String
+  severity    String   @default("INFO")
+  source      String   @default("system") // system | operator | analysis
+  createdAt   DateTime @default(now())
+
+  event CityEvent @relation(fields: [eventId], references: [id], onDelete: Cascade)
+
+  @@index([eventId])
+}
+
+/// LLM + memory analysis result for an event (structured JSON, schema-validated).
+model AnalysisResult {
+  id             String   @id @default(cuid())
+  eventId        String   @unique
+  riskLevel      String   @default("NONE") // NONE | LOW | ELEVATED | HIGH
+  summary        String   @default("")
+  risks          String   @default("[]") // JSON array of strings
+  recommendations String  @default("[]") // JSON array of strings
+  historicalBasis String  @default("[]") // JSON array of memory ids used
+  memoryUsed     Boolean  @default(false)
+  memoryCount    Int      @default(0)
+  degraded       Boolean  @default(false) // true when Hindsight/LLM unavailable → deterministic fallback
+  rawJson        String   @default("{}")
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  event CityEvent @relation(fields: [eventId], references: [id], onDelete: Cascade)
+}
+
+/// Record of a Hindsight memory operation (retain/recall/reflect) — makes memory visible & auditable.
+model MemoryOperation {
+  id          String   @id @default(cuid())
+  eventId     String? // associated city event if any
+  operation   String // RETAIN | RECALL | REFLECT
+  status      String // SUCCESS | FAILED | UNAVAILABLE
+  bankId      String   @default("")
+  query       String   @default("")
+  resultCount Int      @default(0)
+  detail      String   @default("{}") // JSON — returned memories (trimmed) or error
+  createdAt   DateTime @default(now())
+
+  @@index([eventId])
+  @@index([operation])
+  @@index([createdAt])
+}
+
+/// Feed run health tracking — real feed status, not fabricated.
+model FeedRun {
+  id          String   @id @default(cuid())
+  feedId      String // open-meteo | open-meteo-air-quality | wttr-in | openweather | report-portal | demo-scenarios
+  status      String // HEALTHY | DEGRADED | FAILED
+  durationMs  Int      @default(0)
+  eventsFound Int      @default(0)
+  eventsNew   Int      @default(0)
+  error       String?
+  createdAt   DateTime @default(now())
+
+  @@index([feedId, createdAt])
+}
