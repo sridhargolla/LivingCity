@@ -4,7 +4,8 @@
   "features": {
     "ghcr.io/devcontainers/features/node:1": { "version": "22" },
     "ghcr.io/devcontainers/features/python:1": { "version": "3.12" },
-    "ghcr.io/devcontainers-extra/features/bun:1": {}
+    "ghcr.io/devcontainers-extra/features/bun:1": {},
+    "ghcr.io/devcontainers/features/sshd:1": { "version": "latest" }
   },
   "forwardPorts": [3000, 8888],
   "portsAttributes": {
@@ -12,6 +13,6 @@
     "8888": { "label": "Hindsight Memory", "visibility": "private" }
   },
   "hostRequirements": { "memory": "8gb" },
-  "postCreateCommand": "bash .devcontainer/setup-and-run.sh full",
+  "postCreateCommand": "bash .devcontainer/setup-and-run.sh full > /tmp/setup.log 2>&1 || true; echo done > /tmp/setup-done",
   "postStartCommand": "bash .devcontainer/setup-and-run.sh quick"
 }
