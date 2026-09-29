@@ -233,3 +233,10 @@ model ScenarioRun {
   createdAt     DateTime @default(now())
   event         CityEvent? @relation(fields: [eventId], references: [id], onDelete: SetNull)
 }
+
+/// Application-level settings (active city, operator preferences). One row per key.
+model AppSetting {
+  key       String   @id
+  value     String   @default("{}") // JSON payload
+  updatedAt DateTime @updatedAt
+}

@@ -1,11 +1,18 @@
 // Conversations API (PHASE 5) — persistent, searchable discussions.
-// GET  /api/conversations?cityId=&q=   → list (search by title or message content)
-// POST /api/conversations {cityId}     → create a new discussion
+// GET    /api/conversations?cityId=&q=   → list (search by title or message content)
+// POST   /api/conversations {cityId}     → create a new discussion
+// DELETE /api/conversations?cityId=      → privacy control: delete ALL conversations for a city
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import { db } from "@/lib/db";
 
 export const dynamic = "force-dynamic";
+
+export async function DELETE(req: NextRequest) {
+  const cityId = req.nextUrl.searchParams.get("cityId") ?? "hyderabad";
+  const deleted = await db.conversation.deleteMany({ where: { cityId } });
+  return NextResponse.json({ ok: true, deleted: deleted.count });
+}
 
 export async function GET(req: NextRequest) {
   const sp = req.nextUrl.searchParams;

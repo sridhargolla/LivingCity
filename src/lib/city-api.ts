@@ -237,25 +237,167 @@ export interface ScenarioResult {
 
 // ── Simulator + city state ───────────────────────────────────────────────────
 
-export interface SimulatorStatus {
-  running: boolean;
-  cityId: string;
-  intervalMs: number;
-  lastScenario: string | null;
-  runCount: number;
-}
+// ── Live overview (shared data layer for Dashboard / Live City / Events) ────
 
-export interface CityStateCard {
+export type MetricStatus = "LIVE" | "DEGRADED" | "UNAVAILABLE";
+
+export interface MetricCard {
   key: string;
   label: string;
+  status: MetricStatus;
   value: string;
-  level: number;
-  provenance: "LIVE" | "SIMULATED" | "USER_REPORTED" | "NO_DATA";
+  detail: string;
+  observedAt: string | null;
+  source: string | null;
+  sourceUrl: string | null;
+  level: number | null;
   note: string;
+}
+
+export interface CityAlert {
+  id: string;
+  eventId: string;
+  title: string;
+  description: string;
+  severity: string;
+  category: string;
+  observedAt: string;
+  source: string;
+  sourceUrl: string | null;
+}
+
+export interface CityOverviewData {
+  cityId: string;
+  cityName: string;
+  timezone: string;
+  coordinates: { lat: number; lon: number };
+  metrics: { weather: MetricCard; airQuality: MetricCard; traffic: MetricCard; transit: MetricCard };
+  weatherDetail: {
+    temperatureC: number | null;
+    humidityPct: number | null;
+    precipMm: number | null;
+    windKmh: number | null;
+    cloudCover: number | null;
+    condition: string;
+    forecast: { maxPrecipProb: number; expectedMm: number } | null;
+  } | null;
+  airQualityDetail: { usAqi: number | null; pm25: number | null; pm10: number | null; category: string } | null;
+  alerts: CityAlert[];
+  activeIncidents: number;
+  recentEvents: PublicEvent[];
+  hindsight: { available: boolean; bankId: string; detail?: string };
+  feeds: FeedStatus[];
+  lastUpdated: string;
+}
+
+export interface InsightsResponse {
+  insights: Array<{ text: string; basis: "live" | "memory" | "event"; refEventId?: string }>;
+  degraded: boolean;
+  memoryUsed?: boolean;
+  note: string;
+  generatedAt: string;
+}
+
+export interface MemoryItem {
+  id: string;
+  text: string;
+  context: string | null;
+  occurredStart: string | null;
+  occurredEnd: string | null;
+  eventId: string | null;
+  storage: "hindsight" | "retain-log";
+  score: number | null;
+  tags: string[];
+  createdAt: string;
+}
+
+export interface MemoriesResponse {
+  cityId: string;
+  query: string | null;
+  hindsight: { available: boolean; bankId: string; error: string | null };
+  total: number;
+  items: MemoryItem[];
+  note: string;
+}
+
+export interface AnalyticsSummary {
+  cityId: string;
+  cityName: string;
+  windowDays: number;
+  totals: { events: number; active: number; resolved: number };
+  eventsByDay: Array<Record<string, string | number>>;
+  typeKeys: string[];
+  typeCounts: Array<{ eventType: string; label: string; count: number }>;
+  severityCounts: Array<{ severity: string; count: number }>;
+  aqiSeries: Array<{ t: string; aqi: number }>;
+  precipSeries: Array<{ t: string; mm: number }>;
+  memoryOpsByDay: Array<{ day: string; RETAIN: number; RECALL: number; REFLECT: number }>;
+  patterns: Array<{
+    id: string;
+    relation: string;
+    confidence: number;
+    explanation: string;
+    basis: string;
+    from: { id: string; title: string; observedAt: string };
+    to: { id: string; title: string; observedAt: string };
+  }>;
+  anomalies: Array<{ id: string; metric: string; description: string; status: string; deviation: number; direction: string; createdAt: string }>;
+  note: string;
+}
+
+export interface SettingsData {
+  activeCityId: string;
+  cities: Array<CityConfigPublic & { storedEvents: number }>;
+  providers: Array<{ feedId: string; status: string; lastRunAt: string | null; lastError: string | null; note: string; durationMs: number | null }>;
+  ai: { provider: string; sdk: string; model: string; note: string };
+  hindsight: { available: boolean; baseUrl: string; bankId: string; version: string | null; detail: string | null; configuredBankDefault: string };
+  privacy: { conversationsStored: number; conversationHistoryEnabled: boolean; memoryRetentionEnabled: boolean };
+  notifications: { browserAlertsEnabled: boolean };
+}
+
+export interface CityConfigPublic {
+  cityId: string;
+  name: string;
+  country: string;
+  timezone: string;
+  latitude: number;
+  longitude: number;
+  primary: boolean;
+  providers: { weather: boolean; airQuality: boolean; traffic: boolean; transit: boolean };
 }
 
 export const api = {
   health: () => getJson<HealthResponse>("/api/health"),
+  overview: (cityId?: string) => getJson<CityOverviewData>(`/api/city/overview${cityId ? `?cityId=${cityId}` : ""}`),
+  insights: (cityId?: string) => getJson<InsightsResponse>(`/api/insights${cityId ? `?cityId=${cityId}` : ""}`),
+  memories: (params?: { cityId?: string; q?: string; limit?: number }) => {
+    const sp = new URLSearchParams();
+    if (params?.cityId) sp.set("cityId", params.cityId);
+    if (params?.q) sp.set("q", params.q);
+    if (params?.limit) sp.set("limit", String(params.limit));
+    const qs = sp.toString();
+    return getJson<MemoriesResponse>(`/api/memories${qs ? `?${qs}` : ""}`);
+  },
+  analyticsSummary: (params?: { cityId?: string; days?: number }) => {
+    const sp = new URLSearchParams();
+    if (params?.cityId) sp.set("cityId", params.cityId);
+    if (params?.days) sp.set("days", String(params.days));
+    const qs = sp.toString();
+    return getJson<AnalyticsSummary>(`/api/analytics/summary${qs ? `?${qs}` : ""}`);
+  },
+  settings: () => getJson<SettingsData>("/api/settings"),
+  updateSettings: async (body: { activeCityId?: string; prefs?: { conversationHistoryEnabled?: boolean; memoryRetentionEnabled?: boolean; browserAlertsEnabled?: boolean } }) => {
+    const res = await fetch("/api/settings", {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    });
+    return res.json();
+  },
+  deleteAllConversations: async (cityId: string) => {
+    const res = await fetch(`/api/conversations?cityId=${cityId}`, { method: "DELETE" });
+    return res.json() as Promise<{ ok: boolean; deleted: number }>;
+  },
   city: (cityId?: string) => getJson<CitySummary>(`/api/city${cityId ? `?cityId=${cityId}` : ""}`),
   events: (params?: { origin?: string; sinceHours?: number; limit?: number; cityId?: string }) => {
     const sp = new URLSearchParams();
@@ -327,33 +469,7 @@ export const api = {
       }>;
     }>(`/api/memory/operations?limit=${limit}`),
   feeds: () => getJson<{ feeds: FeedStatus[]; lastRunAt: string | null }>("/api/feeds"),
-  report: async (body: {
-    description: string;
-    category: string;
-    latitude?: number | null;
-    longitude?: number | null;
-    locationName?: string;
-    severity?: string;
-  }) => {
-    const res = await fetch("/api/reports", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(body),
-    });
-    const json = await res.json().catch(() => ({}));
-    if (!res.ok) throw new Error((json as { error?: string }).error ?? `HTTP ${res.status}`);
-    return json as { ok: boolean; eventId: string };
-  },
-  demoSeed: async () => {
-    const res = await fetch("/api/demo/seed", { method: "POST" });
-    return res.json();
-  },
-  demoBeforeAfter: async () => {
-    const res = await fetch("/api/demo/before-after", { method: "POST" });
-    const json = await res.json();
-    if (!res.ok) throw new Error((json as { error?: string }).error ?? `HTTP ${res.status}`);
-    return json as { steps: Array<{ step: string; description: string; eventId?: string; analysis?: { summary: string; riskLevel: string; memoryUsed: boolean; memoryCount: number; degraded: boolean; recurringOutcomes: string[]; similarPastSituations: number } | null; outcomeRecorded?: string; retained?: boolean }>; error?: string };
-  },
+  // USER_REPORTED operator-report surface removed with the demo simulator (live data only).
 
   // ── PHASE 14: multi-city ──────────────────────────────────────────────────
   cities: () =>
@@ -470,21 +586,5 @@ export const api = {
     return json as { ok: boolean; scenario: ScenarioResult };
   },
 
-  // ── simulator ─────────────────────────────────────────────────────────────
-  simulatorStatus: () =>
-    getJson<{ status: SimulatorStatus; scenarios: Array<{ key: string; label: string }> }>("/api/simulator"),
-  simulator: async (action: "start" | "stop" | "trigger", cityId: string, scenario?: string, intervalMs?: number) => {
-    const res = await fetch("/api/simulator", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ action, cityId, scenario, intervalMs }),
-    });
-    const json = await res.json().catch(() => ({}));
-    if (!res.ok) throw new Error((json as { error?: string }).error ?? `HTTP ${res.status}`);
-    return json as { ok: boolean; status?: SimulatorStatus; scenario?: string; eventIds?: string[] };
-  },
-  cityState: (cityId: string) =>
-    getJson<{ cityId: string; cards: CityStateCard[]; simulator: SimulatorStatus; updatedAt: string }>(
-      `/api/city/state?cityId=${cityId}`
-    ),
+  // ── simulator / city-state (REMOVED — this system ingests real verified data only) ──
 };

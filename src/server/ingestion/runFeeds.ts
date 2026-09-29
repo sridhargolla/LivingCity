@@ -227,9 +227,6 @@ export async function getFeedStatuses(): Promise<FeedStatus[]> {
     "mumbai:open-meteo-air-quality",
     "bengaluru:open-meteo",
     "bengaluru:open-meteo-air-quality",
-    "report-portal",
-    "demo-scenarios",
-    "simulator",
   ];
   const out: FeedStatus[] = [];
   for (const id of feedIds) {

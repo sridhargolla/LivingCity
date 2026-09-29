@@ -16,7 +16,6 @@ import { HindsightMemoryService } from "@/server/hindsight/HindsightMemoryServic
 import { reasonAboutEvent, sanitizeUntrusted, type CityAnalysis } from "@/server/llm/reasoning";
 import { EVENT_TYPE_LABELS, SEVERITY_ORDER } from "@/server/types";
 import { publicEvent } from "@/server/ingestion/ingest";
-import { DEMO_BANK } from "@/server/demo/scenarios";
 import { bankIdForCity, getCityConfig, CITY_REGISTRY } from "@/server/cities";
 
 /** In-process lock so the same event is never analyzed twice concurrently. */
@@ -39,12 +38,9 @@ async function runAnalysis(eventId: string, priority: boolean): Promise<void> {
   const zone = event.latitude !== null && event.longitude !== null ? event.locationName : "citywide";
   const eventTypeLabel = EVENT_TYPE_LABELS[event.eventType] ?? event.eventType;
 
-  // Demo events use an isolated demo bank so simulated experiences never
-  // pollute the live city memory bank (and the before/after contrast stays clean).
-  // Regular events use their OWN city's bank — CITY A MEMORY ≠ CITY B MEMORY.
-  const isDemoEvent = event.source === "demo-scenarios";
-  const bankId = isDemoEvent ? DEMO_BANK : bankIdForCity(event.cityId);
-  
+  // Every event uses its OWN city's bank — CITY A MEMORY ≠ CITY B MEMORY.
+  // Simulated sources were removed: this system ingests REAL verified data only.
+  const bankId = bankIdForCity(event.cityId);
 
   // ── 2. HINDSIGHT RECALL ──────────────────────────────────────────────────
   const recallQuery = `${eventTypeLabel} ${zone} ${event.tags ? JSON.parse(event.tags).join(" ") : ""} what happened and what were the consequences`;
@@ -58,7 +54,7 @@ async function runAnalysis(eventId: string, priority: boolean): Promise<void> {
   // ── 2b. CROSS-CITY TRANSFER (PHASE 15) — only when the local bank has nothing.
   // Results are labeled TRANSFERRED EXPERIENCE and are NEVER treated as local facts.
   let transferred: { cityId: string; cityName: string; text: string; memoryId: string } | null = null;
-  if (!isDemoEvent && recall.status === "SUCCESS" && recall.experiences.length === 0) {
+  if (recall.status === "SUCCESS" && recall.experiences.length === 0) {
     for (const other of CITY_REGISTRY.filter((c) => c.cityId !== event.cityId)) {
       const cross = await HindsightMemoryService.recall_from_other_city({
         fromCityId: other.cityId,
