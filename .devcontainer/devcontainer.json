@@ -1,0 +1,17 @@
+{
+  "name": "Living City",
+  "image": "mcr.microsoft.com/devcontainers/base:ubuntu-24.04",
+  "features": {
+    "ghcr.io/devcontainers/features/node:1": { "version": "22" },
+    "ghcr.io/devcontainers/features/python:1": { "version": "3.12" },
+    "ghcr.io/devcontainers-extra/features/bun:1": {}
+  },
+  "forwardPorts": [3000, 8888],
+  "portsAttributes": {
+    "3000": { "label": "Living City App", "visibility": "public" },
+    "8888": { "label": "Hindsight Memory", "visibility": "private" }
+  },
+  "hostRequirements": { "memory": "8gb" },
+  "postCreateCommand": "bash .devcontainer/setup-and-run.sh full",
+  "postStartCommand": "bash .devcontainer/setup-and-run.sh quick"
+}
