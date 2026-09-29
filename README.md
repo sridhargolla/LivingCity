@@ -2,6 +2,8 @@
 
 > ### **A city that remembers.**
 
+# LIVE DEMO LINK : https://livingcity.space-z.ai
+
 **Living City** is an AI-powered city-operations agent for Hyderabad that combines **real-time urban signals, persistent memory, and AI reasoning** to understand what is happening now in the context of what happened before.
 
 Instead of simply displaying city data, Living City builds a continuously evolving memory of meaningful city experiences.
