@@ -148,3 +148,23 @@ Work Log:
 Stage Summary:
 - All 17 phases implemented and verified. Hindsight remains the central memory layer: per-city banks, memory-gated copilot recall, human-confirmed/corrected experience retention, anomaly memory recall, cross-city transfer labeled TRANSFERRED EXPERIENCE.
 - Live = Open-Meteo weather+AQI (3 cities) w/ wttr.in fallback; traffic/transit/grid have no free legitimate source → honest NO_DATA cards, never faked.
+
+---
+Task ID: 6
+Agent: lead (main orchestrator)
+Task: Fix Hindsight integration end-to-end + push project to GitHub
+
+Work Log:
+- Fixed Settings 500: stale Prisma client missing AppSetting model → bunx prisma db push + generate → API 200.
+- Diagnosed Hindsight server downtime: venv had lost torch/sentence-transformers; fastmcp was corrupted (dual full+slim dist-info) → clean reinstall fastmcp 3.2.4; starlette 1.7.0 broke fastapi 0.128 → pinned starlette 0.49.3.
+- Chose ONNX embeddings provider (intfloat/multilingual-e5-small, dim 384) + RRF reranker to avoid the ~2.5GB torch local-ml install; z-ai gateway has no /v1/embeddings (404), so local ONNX was the only path.
+- Root-caused repeated silent deaths of hindsight + next dev: sandbox reaps setsid-detached processes; long tool calls getting "context canceled" kill their process tree. Fix: launch via subshell background pattern `( cmd > log 2>&1 & )`, keep tool calls short.
+- Memory pressure on 4GB box: capped next-server heap NODE_OPTIONS=--max-old-space-size=768; HINDSIGHT_API_WORKER_MAX_SLOTS=2, WORKER_ENABLED=false, OMP_NUM_THREADS=1.
+- Added HINDSIGHT_BASE_URL=http://127.0.0.1:8888 to .env (IPv4-safe).
+- VERIFIED end-to-end: /api/health hindsight.available=true; recall via /api/memories returns 16 real memories (bank living-city-hyderabad); retain/recall server-side only, credentials never exposed to frontend.
+- GitHub: prepared .gitignore (env/logs/db/hindsight-data/screenshots excluded), identity sridhargolla, remote origin, commit 73a3f5e. First PAT (fine-grained) lacked Contents:write → 403; user supplied classic PAT (repo scope) → pushed with --force (replaced GitHub auto-README stub): 894bfca...73a3f5e main -> main.
+
+Stage Summary:
+- Hindsight ONLINE and wired: connect → bank → retain/recall → Copilot, all server-side, honest degradation when unavailable.
+- Project live on https://github.com/sridhargolla/LivingCity (main @ 73a3f5e).
+- Runtime pattern that survives sandbox: subshell-background launches; restart commands documented here.
