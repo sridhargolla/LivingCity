@@ -1,230 +1,678 @@
-# LIVING CITY — Hyderabad
+# 🌆 Living City — Hyderabad
 
-> **"A city that remembers."**
-> An AI city-operations agent that continuously observes real-world events, remembers what happened before (via [Hindsight](https://github.com/vectorize-io/hindsight)), and uses that experience to understand new situations.
+> ### **A city that remembers.**
 
-Built for the Hindsight-focused AI agent hackathon. Not a generic smart-city dashboard — a demonstration of **persistent operational memory** for a city.
+**Living City** is an AI-powered city-operations agent for Hyderabad that combines **real-time urban signals, persistent memory, and AI reasoning** to understand what is happening now in the context of what happened before.
+
+Instead of simply displaying city data, Living City builds a continuously evolving memory of meaningful city experiences.
+
+```text
+REAL WORLD
+    ↓
+LIVE SIGNALS
+    ↓
+CITY EVENT
+    ↓
+HINDSIGHT RECALL
+    ↓
+AI REASONING
+    ↓
+RELATIONSHIPS
+    ↓
+HINDSIGHT RETAIN
+    ↓
+LIVING CITY UI
+```
 
 ---
 
-## 1. Problem
+## 🚀 Why Living City?
 
-City dashboards answer *"what is happening right now?"* They discard the operational lessons of every previous event. Each new incident is assessed from scratch, by whoever happens to be on shift.
+Most city dashboards answer:
 
-Living City answers a different set of questions:
+> **"What is happening right now?"**
 
-- What is happening right now?
-- What happened in **similar situations before**?
-- What did the city **learn** from those situations?
-- How does that **memory change the assessment** of the current event?
+Living City asks a deeper question:
 
-## 2. Core concept — the memory loop
+> **"Have we seen something like this before, and what did we learn from it?"**
 
-```
-REAL-WORLD SIGNAL (Open-Meteo weather, air quality, wttr.in, operator reports)
-      ↓
-LIVE EVENT (normalize → deduplicate → store)
-      ↓
-HINDSIGHT RECALL   ← what does the city remember about this?
-      ↓
-LLM REASONING      ← schema-validated, injection-defended, hedged language
-      ↓
-RELATIONSHIPS      ← RECURRING_PATTERN / RELATED / POSSIBLE_ESCALATION …
-      ↓
-HINDSIGHT RETAIN   ← store the distilled experience (not raw data)
-      ↓
-SSE → LIVE UI      ← map, stream, memory panel update without refresh
-```
+A rainfall event today is not just another weather reading.
 
-The system **shows** its memory: every recall and retain is visible in the UI and auditable in the database.
+The system can connect today's conditions with relevant previous experiences, retrieve what happened, identify relationships, and preserve the new experience for future reasoning.
 
-## 3. Hindsight's role (core technology, not decoration)
+This creates a continuous memory loop:
 
-| Concern | Implementation |
-|---|---|
-| Memory store | Self-hosted **Hindsight server** (`hindsight-api` 0.10.x, embedded PostgreSQL) |
-| Client | Official `@vectorize-io/hindsight-client` TypeScript SDK |
-| Bank | `living-city-hyderabad` (`HINDSIGHT_BANK_ID`) |
-| RETAIN | `HindsightMemoryService.retain_event_experience()` — distilled facts + consequences, tagged (`type:`, `zone:`, `origin:`), with `occurred_at` timestamps |
-| RECALL | `HindsightMemoryService.recall_related_experiences()` — natural-language recall at analysis time; results feed the LLM prompt and the UI |
-| REFLECT | `HindsightMemoryService.reflect_on_pattern()` — disposition-aware pattern synthesis |
-| Degraded mode | If Hindsight is unreachable the system **says so** ("Hindsight memory temporarily unavailable") and continues with deterministic analysis. It never fabricates memories. |
-
-What gets retained is **experience, not data**: "On 2026-09-07, heavy rainfall affected the Western Corridor… water accumulation observed within 90 minutes… traffic slowdown 25–40 min… GHMC cleared drains in 3 hours." Raw payloads stay in PostgreSQL.
-
-## 4. Architecture
-
-```
-Next.js 16 (App Router, TypeScript)
-├── src/app/api/**            REST API (see below) + SSE stream
-├── src/instrumentation.ts    boots the feed scheduler at server start
-├── src/server/
-│   ├── hindsight/            HindsightMemoryService (retain/recall/reflect + health)
-│   ├── ingestion/
-│   │   ├── providers/        open-meteo, open-meteo-air-quality, wttr-in, openweather adapters
-│   │   ├── normalize.ts      canonical event builder, dedup fingerprints, sanitization
-│   │   ├── ingest.ts         dedup → store → SSE → async analysis trigger
-│   │   └── runFeeds.ts       error-isolated feed orchestration + health
-│   ├── analysis/             the memory loop (recall → LLM → relationships → retain)
-│   ├── llm/reasoning.ts      z-ai LLM call: system/data separation, zod-validated JSON
-│   ├── realtime/eventBus.ts  in-process SSE pub/sub
-│   └── demo/scenarios.ts     before/after memory demo (real pipeline, SIMULATED events)
-├── src/components/city/**    command-center UI (map, stream, memory panels, timeline, graph)
-├── prisma/schema.prisma      CityEvent, EventRelationship, EventOutcome, AnalysisResult,
-│                             MemoryOperation, FeedRun
-└── scripts/start-hindsight.sh  starts the Hindsight server wired to the LLM gateway
-```
-
-**Stack:** Next.js 16 · TypeScript · Tailwind 4 · shadcn/ui · Prisma + SQLite · Leaflet (OSM tiles) · Server-Sent Events · Hindsight (`hindsight-api` + `@vectorize-io/hindsight-client`) · z-ai LLM.
-
-## 5. Real data sources (verified)
-
-| Source | What | Key required? | Status |
-|---|---|---|---|
-| [Open-Meteo Forecast API](https://open-meteo.com/en/docs) | Temperature, precipitation, wind, WMO codes + 6h rain forecast | No (free tier; optional paid `OPEN_METEO_API_KEY`) | ✅ live |
-| [Open-Meteo Air Quality API](https://open-meteo.com/en/docs/air-quality-api) | PM2.5, PM10, US AQI | No | ✅ live |
-| [wttr.in](https://wttr.in/:help) | Fallback current conditions | No | ✅ fallback (activates when primary fails) |
-| OpenWeather | Rain 1h | **Yes — `WEATHER_API_KEY`** | dormant until key provided |
-| Operator portal | Incident reports from the UI | — | ✅ live |
-| Demo scenarios | Controlled memory-learning scenarios | — | ✅ labeled `SIMULATED` |
-
-Event-worthy thresholds (IMD-informed): rain ≥ 0.5 mm/h (bands up to ≥ 15.1 mm/h "extremely heavy"), temperature ≥ 40 °C, WMO thunderstorm codes 95–99, US AQI ≥ 51. If nothing exceeds thresholds, **no event is created — nothing is fabricated**.
-
-Every event carries `dataOrigin` — `LIVE` / `SIMULATED` / `USER_REPORTED` — and the UI labels it on every row. "LIVE ONLY" mode excludes simulated and user data from the map and stream.
-
-## 6. Memory lifecycle (what Hindsight actually sees)
-
-1. **Seed** (optional, demo): 3 historical monsoon experiences retained with real timestamps.
-2. **Event A** (rain, Western Corridor): recall → (empty or shallow memory) → generic assessment → outcome recorded → **retain**.
-3. **Event B** (similar rain, same corridor): recall → Hindsight returns Event A's experience → assessment now cites "historically associated with water accumulation / traffic slowdown" with hedged language.
-4. All differences between A and B come from **real recall**, not scripted text.
-
-The UI surfaces: memory count per event, recalled memory cards, the retained fact ("Memory updated"), a live memory-operations log, and the learning indicator (experiences / retains / recalls / patterns — all real numbers from Hindsight + the DB).
-
-**Honesty rules enforced in prompts and UI:** the system never claims certainty about future flooding; it uses "historically associated with", "resembles", "possible risk".
-
-## 7. API
-
-```
-GET  /api/health                     service + Hindsight + DB health
-GET  /api/city                       operational summary (counts by origin/status)
-GET  /api/events                     list (filters: origin, status, type, sinceHours, limit)
-GET  /api/events/{id}                event + analysis + outcomes
-GET  /api/events/{id}/memory         Hindsight recall scoped to the event + ops log
-GET  /api/events/{id}/relationships  relationship edges for the graph
-GET  /api/city/timeline              past vs current columns
-GET  /api/city/patterns              recurring patterns + counts
-GET  /api/memory/stats               learning indicator (real Hindsight bank count)
-GET  /api/memory/operations          recent RETAIN/RECALL/REFLECT ops
-GET  /api/feeds, /api/feeds/health   real feed status (HEALTHY/FAILED/DORMANT + errors)
-POST /api/reports                    operator report (validated, sanitized, rate-limited)
-GET  /api/events/stream              SSE: event.created, memory.recalled, analysis.completed,
-                                     memory.retained, event.relationship.created, feed.status_changed…
-POST /api/demo/seed                  seed historical experiences (real retain calls)
-POST /api/demo/before-after          run the before/after demonstration
-```
-
-## 8. Setup
-
-```bash
-# 1. install deps
-bun install
-
-# 2. environment
-cp .env.example .env        # adjust if needed
-
-# 3. database
-bun run db:push
-
-# 4. Hindsight memory server (self-hosted, real)
-/home/z/.venv/bin/pip3 install hindsight-api     # one-time
-./scripts/start-hindsight.sh &                   # serves :8888 (API) — uses the sandbox LLM gateway
-#    (in a normal deployment, set HINDSIGHT_API_LLM_* to your OpenAI-compatible endpoint)
-
-# 5. app
-bun run dev      # http://localhost:3000
-```
-
-### Environment variables
-
-| Variable | Purpose |
-|---|---|
-| `DATABASE_URL` | SQLite path |
-| `HINDSIGHT_BASE_URL` | Hindsight server URL (default `http://localhost:8888`) |
-| `HINDSIGHT_API_KEY` | Hindsight auth key (self-hosted: optional) |
-| `HINDSIGHT_BANK_ID` | Memory bank (default `living-city-hyderabad`) |
-| `HINDSIGHT_ENABLED` | `false` disables all memory calls (degraded mode) |
-| `WEATHER_API_KEY` | Optional OpenWeather key |
-| `OPEN_METEO_API_KEY` | Optional Open-Meteo paid key |
-| `FEED_POLL_INTERVAL_MS` | Ingestion interval (default 300000 = 5 min) |
-| `FEED_POLLING_DISABLED` | Stop the scheduler (useful in tests) |
-| `CITY_LAT`, `CITY_LON` | City focus coordinates |
-
-The Hindsight **server** itself is configured by `scripts/start-hindsight.sh`: `HINDSIGHT_API_LLM_PROVIDER=openai`, `HINDSIGHT_API_LLM_BASE_URL`, `HINDSIGHT_API_LLM_API_KEY`, `HINDSIGHT_API_LLM_MODEL`, `HINDSIGHT_API_LLM_DEFAULT_HEADERS` — all from environment/secret store, never committed.
-
-## 9. Demo instructions (judge script)
-
-1. Open the app → header shows **LIVE**, feed health shows real source states.
-2. **MEMORY DEMO** → *Seed historical memory* (optional) → 3 real `retain` calls.
-3. *Run before/after demo* → watch the pipeline: Event A (generic, `memories used: 0`) → outcome recorded → retained → Event B → recall fires → `memories used: N`, summary cites historical outcomes. Compare the two cards.
-4. Click any event (map or stream) → detail panel shows **🧠 City Memory** (actual recall results), the agent assessment (hedged language), and **Memory updated** (the retained fact).
-5. Submit an **+ REPORT** → it appears labeled `USER-REPORTED`, runs the same memory pipeline, and enriches future recalls.
-6. Watch **Data Sources** — statuses reflect *actual* adapter runs; fail one (e.g. no network) and it honestly shows `FAILED` while the rest continue.
-
-## 10. Security
-
-- **Prompt-injection defense**: all external text (weather descriptions, user reports) is rendered inert (`< >` escaped, control chars stripped, length-capped) and delivered inside `<event_content>` as *data only*; the system prompt forbids following instructions from content or memory text; output is zod-validated before use.
-- Input validation (zod) on `/api/reports`; coordinates checked against the Hyderabad bounding box; partial coordinates rejected (never guessed).
-- SQL-injection safe via Prisma parameterized queries; XSS-safe React rendering (no `dangerouslySetInnerHTML`).
-- Rate limiting on reports (10 / 10 min / IP); bounded LLM/memory concurrency (analysis lock per event, staggered ingestion).
-- Deduplication by content fingerprint (source | type | severity band | day | 2 km grid) prevents duplicate events and duplicate LLM/Hindsight spend.
-- No secret reaches the client: LLM and Hindsight credentials are server-side only; frontend talks to Next.js API routes exclusively.
-
-## 11. Known limitations (honest list)
-
-- Open-Meteo free tier is IP-limited per day; when exhausted the weather feed shows `FAILED` and wttr.in takes over. No data is faked in the interim.
-- Traffic/transit feeds (GTFS/roads) are **not** integrated — no legitimate free real-time incident feed for Hyderabad was verified during the build; the adapter interface accepts them without code changes. The prompt-forbidden alternative (fabricating traffic data) was rejected.
-- Air-quality events are city-wide (single sensor grid point), not zone-resolved.
-- The relationship graph lays out stored edges in a deterministic ring; it is not a force simulation.
-- SSE is single-process in-memory — correct for this deployment, would need Redis pub/sub to scale horizontally.
-- Hindsight `bankMemoryCount` uses `listMemories().total`; on older server versions it may be `null` (UI falls back to retained-count).
-
-## 12. Tests
-
-```bash
-bun test            # unit tests (normalization, dedup, sanitization, severity, formatting)
-```
-
-Integration verification (Hindsight + DB + LLM + SSE) requires the running stack — see demo script above; the before/after demo is the end-to-end test of the memory loop.
+**Observe → Remember → Reason → Learn → Remember**
 
 ---
 
-## 3.5 Production master upgrade (Phases 1-17)
+# 🧠 Hindsight Is the Core
 
-The platform was upgraded through 17 phases. Every claim below is implemented and verified in this repository — nothing is aspirational.
+Hindsight is not a decorative feature or a secondary database.
 
-| Phase | Capability | Where |
-|---|---|---|
-| 2 | Hindsight ↔ City Agent (event analysis + copilot share one memory-backed pipeline) | `src/server/analysis/analyzeEvent.ts`, `src/server/agent/` |
-| 3 | Provider abstraction: Open-Meteo weather + AQI (live, verified), wttr.in fallback, OpenWeather optional key; retries, timeouts, dedup | `src/server/ingestion/` |
-| 4 | Evidence/provenance: deterministic evidence objects, raw-data panel, allowlisted source links | `src/server/evidence.ts`, `EvidenceDialog.tsx` |
-| 5 | Persistent conversations: create/search/rename/delete, message refs to events/memories/evidence | `Conversation` models, `ChatPanel.tsx` |
-| 6 | Ask the City: deterministic intents first, LLM only where useful; Hindsight gated to memory-relevant intents | `src/server/agent/chat.ts`, `intents.ts` |
-| 7 | Chat ↔ UI actions: 11 validated structured actions; URL allowlist; no LLM code execution | `ChatActionSchema`, `page.tsx handleChatAction` |
-| 8 | LIVE / SIMULATED / USER-REPORTED separation everywhere incl. chat + state cards | `ORIGIN_META`, `CityStateStrip` |
-| 9 | City memory graph from stored relationships (events + pattern edges) | `MemoryGraph.tsx`, `/api/city/patterns` |
-| 10 | Anomaly detection vs self-computed baselines (AQI, precip, event rate); OBSERVED FACT vs POSSIBLE EXPLANATION; Hindsight recall of similar anomalies | `src/server/anomaly.ts`, `AnomalyBanner.tsx` |
-| 11 | City Learning dashboard: significant events, patterns, lessons, retained experiences, unresolved questions — all traceable | `src/server/learning.ts`, `LearningPanel.tsx` |
-| 12 | Human feedback: Confirm / Reject / Investigate / Dismiss; confirmations and corrections retained to city memory, attributed to humans | `/api/events/[id]/feedback`, `EventDetailPanel` |
-| 13 | What-If scenario analysis with OBSERVED / HISTORICAL / SCENARIO labels; never a prediction | `src/server/scenario.ts`, `WhatIfDialog.tsx` |
-| 14 | Multi-city: registry (Hyderabad primary; Mumbai, Bengaluru weather/AQI-capable), per-city events, per-city Hindsight banks | `src/server/cities.ts` |
-| 15 | Cross-city learning: TRANSFERRED EXPERIENCE surfaced only when local memory is empty; local evidence stays authoritative | `recall_from_other_city` |
-| 16 | Voice: Web Speech input + speech synthesis output through the same copilot pipeline; text always available | `src/hooks/useVoice.ts` |
-| 17 | 3D city: illustrative Three.js view (districts, severity pillars, rain overlay) consuming the SAME event system as the 2D map | `src/components/map/City3D.tsx` |
+It is the **long-term memory layer of Living City**.
 
-**Honesty invariants (tested in `tests/unit.test.ts`):**
-- SIMULATED events never become LIVE (origin preserved through evidence, chat, state cards).
-- Fabricated claims never receive verified evidence — evidence is built only from stored records.
-- City A memory never silently becomes City B fact — isolated Hindsight banks per city.
+Living City uses Hindsight to:
 
-**Simulated city engine ("City Pulse"):** autonomous SIMULATED incidents (heavy rain, emergency, transit delay, grid alert, road closure, crowd, clearing weather) run through the same real pipeline and are labeled everywhere. City-state cards derive from actual stored events only; when no provider exists a card honestly shows NO_DATA (traffic/transit/grid have no free legitimate live source — we do not fake them).
+* Retain meaningful city experiences
+* Recall relevant historical experiences
+* Connect current events with previous events
+* Preserve outcomes and observations
+* Support contextual AI reasoning
+* Build an evolving city memory
+
+The core memory loop is:
+
+```text
+                 ┌───────────────┐
+                 │  LIVE EVENT   │
+                 └───────┬───────┘
+                         ↓
+                ┌─────────────────┐
+                │ HINDSIGHT RECALL│
+                └────────┬────────┘
+                         ↓
+                ┌─────────────────┐
+                │  AI REASONING   │
+                └────────┬────────┘
+                         ↓
+                ┌─────────────────┐
+                │ RELATIONSHIPS   │
+                └────────┬────────┘
+                         ↓
+                ┌─────────────────┐
+                │ HINDSIGHT RETAIN│
+                └────────┬────────┘
+                         ↓
+                  FUTURE EVENTS
+```
+
+This allows the city intelligence layer to become more context-aware over time.
+
+---
+
+# 🤖 AI City Agent
+
+Living City includes an AI City Agent that can reason over:
+
+* Current city conditions
+* Live events
+* Historical experiences
+* Hindsight memories
+* Evidence and provenance
+* Relationships between events
+
+Users can ask questions such as:
+
+```text
+What's happening right now?
+
+What happened here before?
+
+Have we seen something similar?
+
+What did the city learn?
+
+Why is this happening?
+
+Show me the evidence.
+
+Where did this information come from?
+
+Show this event on the map.
+```
+
+The agent is designed to provide **clear, concise, evidence-grounded responses** rather than unnecessary explanations.
+
+---
+
+# 💬 Ask the City
+
+**Ask the City** is the conversational interface for Living City.
+
+Users can discuss the current state of Hyderabad while maintaining conversation context.
+
+The agent can combine:
+
+```text
+Current Data
+     +
+Current Events
+     +
+Conversation Context
+     +
+Hindsight Memory
+     +
+Evidence
+     ↓
+AI City Agent
+```
+
+When a question requires historical context, the agent can recall relevant Hindsight memories.
+
+When evidence is requested, the system can surface the underlying source/event information.
+
+---
+
+# 🔎 Evidence & Provenance
+
+Living City is designed around traceable information.
+
+Important observations should be connected to their underlying evidence whenever available.
+
+Users can inspect:
+
+* Source
+* Timestamp
+* Location
+* Event
+* Data origin
+* Related memory
+
+The system distinguishes between different types of information rather than presenting everything as equally authoritative.
+
+```text
+LIVE
+USER-REPORTED
+HISTORICAL
+SIMULATED
+```
+
+Simulated information must never be presented as live real-world information.
+
+---
+
+# 🌍 Real-Time City Intelligence
+
+Living City connects to real-world data providers where legitimate live access is available.
+
+Current integrations include supported sources for areas such as:
+
+* 🌦️ Weather
+* 🌫️ Air Quality
+* 🚨 City Events
+* 🗺️ Geographic Information
+
+Traffic and transit are provider-dependent and are only presented as live when a verified live source is actually available.
+
+If a legitimate live source is unavailable, the application reports the limitation instead of inventing values.
+
+---
+
+# 🗺️ Live City
+
+The Live City interface provides a geographic view of the current city state.
+
+It connects city events and available real-time information to locations on the map.
+
+Users can:
+
+* Explore current events
+* Inspect locations
+* View event details
+* Follow evidence
+* Jump from AI conversations to map locations
+
+The map uses the same underlying city intelligence layer as the rest of the application.
+
+---
+
+# 🚨 Live Events
+
+Living City provides a real-time event stream for supported city signals.
+
+Events can contain:
+
+```text
+Event
+Location
+Observed At
+Severity
+Status
+Source
+Data Origin
+```
+
+Events are normalized before being passed into the intelligence layer.
+
+Duplicate events are handled so that repeated provider updates do not create meaningless duplicate memories.
+
+---
+
+# 🧠 Memories
+
+The Memories page provides a human-readable view of the city's accumulated experiences.
+
+Users can explore:
+
+* Previous incidents
+* Relevant observations
+* Outcomes
+* Recurring patterns
+* Related events
+* Memory timelines
+* Memory relationships
+
+The goal is not to create a giant archive of raw messages.
+
+The goal is to preserve **meaningful city experiences** that can help future reasoning.
+
+---
+
+# 🕸️ Memory Relationships
+
+Living City can represent relationships between meaningful events and experiences.
+
+For example:
+
+```text
+Heavy Rain
+     │
+     ├── Waterlogging
+     │
+     └── Traffic Disruption
+             │
+             └── Transit Delay
+```
+
+These relationships can help the AI agent understand a current event in a broader context.
+
+---
+
+# 📊 City Analytics
+
+The Analytics interface provides a way to inspect patterns across collected city information.
+
+Depending on available data, this can include:
+
+* Event trends
+* Historical comparisons
+* Recurring patterns
+* Anomalies
+* Memory relationships
+* City activity
+
+Analytics are generated from available data rather than fabricated metrics.
+
+---
+
+# 💾 Persistent Conversations
+
+AI City Agent conversations are persisted separately from long-term city memory.
+
+### Conversation Storage
+
+Stores:
+
+* Conversations
+* Messages
+* Context
+* Referenced events
+* Relevant sources
+
+### Hindsight Memory
+
+Stores:
+
+* Meaningful city experiences
+* Observations
+* Outcomes
+* Relevant historical context
+
+This separation prevents ordinary chat messages from becoming permanent city knowledge.
+
+---
+
+# 🔄 The Living City Loop
+
+The defining architecture of the project is:
+
+```text
+        🌍 REAL WORLD
+              ↓
+        LIVE SIGNALS
+              ↓
+        CITY EVENTS
+              ↓
+       HINDSIGHT RECALL
+              ↓
+        AI REASONING
+              ↓
+       EVENT RELATIONSHIPS
+              ↓
+       HINDSIGHT RETAIN
+              ↓
+        CITY MEMORY
+              ↓
+       FUTURE EVENTS
+              ↺
+```
+
+Every meaningful new experience can become part of the city's long-term context.
+
+---
+
+# 🏗️ Architecture
+
+```text
+                    🌍 REAL WORLD
+                         │
+                         ▼
+                 LIVE DATA SOURCES
+                         │
+                         ▼
+                  DATA INGESTION
+                         │
+                         ▼
+                  CITY DATA LAYER
+                         │
+             ┌───────────┼───────────┐
+             │           │           │
+             ▼           ▼           ▼
+        DASHBOARD     LIVE CITY   LIVE EVENTS
+                         │
+                         ▼
+                     HINDSIGHT
+                         │
+                         ▼
+                   CITY MEMORY
+                         │
+                         ▼
+                  AI CITY AGENT
+                         │
+                 ┌───────┴───────┐
+                 ▼               ▼
+            USER CHAT         EVIDENCE
+                 │
+                 ▼
+              OUTCOME
+                 │
+                 ▼
+             HINDSIGHT
+```
+
+---
+
+# 📱 Application
+
+```text
+Living City
+│
+├── 🏠 Dashboard
+│   ├── Live City Status
+│   ├── Current Events
+│   ├── Alerts
+│   └── Memory Insights
+│
+├── 🤖 AI City Agent
+│   ├── Ask the City
+│   ├── Conversations
+│   ├── Evidence
+│   └── Map Actions
+│
+├── 🧠 Memories
+│   ├── Memory Search
+│   ├── Experiences
+│   ├── Relationships
+│   └── Timeline
+│
+├── 🗺️ Live City
+│   └── Interactive Map
+│
+├── 🚨 Live Events
+│   └── Event Stream
+│
+├── 📊 Analytics
+│   ├── Trends
+│   ├── Patterns
+│   └── Anomalies
+│
+└── ⚙️ Settings
+```
+
+---
+
+# ⚡ Real-Time Architecture
+
+The application is designed around continuously updating city information.
+
+Depending on the underlying provider, real-time updates can use:
+
+* Server-Sent Events
+* WebSockets
+* Polling
+* Background ingestion
+
+The frontend should update relevant views without requiring unnecessary page refreshes.
+
+---
+
+# 🔐 Data Integrity
+
+Living City follows a strict principle:
+
+> **Never pretend unavailable information is real.**
+
+The application must distinguish between:
+
+### 🟢 LIVE
+
+Verified information received from an active external source.
+
+### 🟡 DEGRADED
+
+A provider is partially available or experiencing issues.
+
+### ⚪ UNAVAILABLE
+
+A legitimate source is currently unavailable.
+
+### 👤 USER-REPORTED
+
+Information explicitly submitted by a human.
+
+### 📚 HISTORICAL
+
+Previously collected information.
+
+### 🧪 SIMULATED
+
+Development/testing information that must never be presented as live.
+
+---
+
+# 🔒 Security
+
+Living City follows security practices including:
+
+* Server-side API credentials
+* Environment-based secrets
+* Input validation
+* External URL validation
+* Protected Hindsight credentials
+* No secrets committed to source control
+* Separation of trusted and untrusted external data
+
+---
+
+# 🛠️ Technology
+
+The project is built around:
+
+* **AI City Agent**
+* **Hindsight**
+* **Real-time data providers**
+* **Persistent application storage**
+* **Interactive maps**
+* **Real-time event processing**
+* **Conversational AI**
+* **Evidence/provenance**
+
+The implementation-specific technologies and provider configuration are documented in the project source and deployment configuration.
+
+---
+
+# ⚙️ Environment Variables
+
+Example configuration:
+
+```env
+HINDSIGHT_BASE_URL=
+HINDSIGHT_API_KEY=
+HINDSIGHT_BANK_ID=
+
+AI_API_KEY=
+
+WEATHER_API_KEY=
+AIR_QUALITY_API_KEY=
+```
+
+Only configure providers actually used by the deployment.
+
+**Never commit real credentials.**
+
+---
+
+# 🚀 Getting Started
+
+## Clone
+
+```bash
+git clone <YOUR_REPOSITORY_URL>
+cd living-city
+```
+
+## Install
+
+```bash
+npm install
+```
+
+## Configure
+
+Create the required environment files and add your provider credentials.
+
+## Run
+
+```bash
+npm run dev
+```
+
+Use the project's backend startup command as documented in the source tree.
+
+---
+
+# 🧪 Testing
+
+Before deployment, verify:
+
+* Live data providers
+* Event ingestion
+* Hindsight connection
+* Hindsight RETAIN
+* Hindsight RECALL
+* AI City Agent
+* Conversation persistence
+* Evidence generation
+* Map interactions
+* Real-time updates
+* Data-origin labels
+* Provider failure handling
+
+---
+
+# 🎯 Hackathon Focus
+
+Living City is built around a focused question:
+
+> **What if a city could remember?**
+
+Rather than creating another dashboard, the project explores how persistent memory can give an AI city-operations agent context across time.
+
+The important distinction is:
+
+```text
+Traditional Dashboard
+        ↓
+"What is happening?"
+
+Living City
+        ↓
+"What is happening?"
+        +
+"Have we seen this before?"
+        +
+"What happened then?"
+        +
+"What did we learn?"
+        +
+"What evidence supports this?"
+```
+
+---
+
+# 🌆 Vision
+
+A city produces enormous amounts of information every day.
+
+But information alone is not memory.
+
+Living City aims to create an intelligence layer that can:
+
+**Observe → Remember → Understand → Discuss → Learn**
+
+The long-term vision is a city intelligence system where today's meaningful experiences become context for tomorrow's decisions.
+
+---
+
+# 🏆 Built For
+
+**HackWithHyderabad 3.0**
+
+### Theme
+
+**AI Agents for Real-World Impact**
+
+---
+
+# 📌 Project Status
+
+🚧 **Active Development**
+
+Current focus:
+
+* [x] Real-time city intelligence architecture
+* [x] Hindsight memory architecture
+* [x] AI City Agent
+* [x] Persistent conversations
+* [x] Evidence/provenance architecture
+* [x] Live city interface
+* [x] City memory interface
+* [x] Event intelligence
+* [x] Additional verified live city providers
+* [x] Advanced city relationships
+* [x] Expanded real-world integrations
+
+---
+
+# 👥 Team
+
+Built with the goal of creating a new kind of human interface for city intelligence.
+
+---
+
+# 📄 License
+
+Add the project's selected license here.
+
+---
+
+<div align="center">
+
+## 🌆 Living City
+
+### **A city that remembers.**
+
+**Observe. Remember. Understand. Discuss.**
+
+</div>
