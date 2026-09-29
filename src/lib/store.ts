@@ -7,6 +7,15 @@ import { create } from "zustand";
 import { persist, createJSONStorage } from "zustand/middleware";
 import type { CityConfigPublic } from "@/lib/city-api";
 
+export type PageId =
+  | "dashboard"
+  | "copilot"
+  | "memories"
+  | "live-city"
+  | "live-events"
+  | "analytics"
+  | "settings";
+
 interface AppState {
   cityId: string;
   cityName: string;
@@ -18,6 +27,12 @@ interface AppState {
   focusTick: number;
   focusEvent: (id: string) => void;
   clearFocus: () => void;
+  /** Active page (single-route sandbox: pages switch inside /). */
+  page: PageId;
+  setPage: (p: PageId) => void;
+  /** Event selected in a detail panel (shared across pages). */
+  selectedEventId: string | null;
+  selectEvent: (id: string | null) => void;
 }
 
 export const useAppStore = create<AppState>()(
@@ -37,6 +52,10 @@ export const useAppStore = create<AppState>()(
       focusTick: 0,
       focusEvent: (id) => set((s) => ({ focusEventId: id, focusTick: s.focusTick + 1 })),
       clearFocus: () => set({ focusEventId: null }),
+      page: "dashboard",
+      setPage: (p) => set({ page: p }),
+      selectedEventId: null,
+      selectEvent: (id) => set({ selectedEventId: id }),
     }),
     {
       name: "living-city-app",
