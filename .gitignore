@@ -52,3 +52,13 @@ prompt
 server.log
 # Skills directory
 /skills/
+# LIVING CITY local runtime artifacts
+.env
+dev.log
+hindsight.log
+server.log
+db/custom.db
+hindsight-data/
+shot-*.png
+tool-results/
+agent-ctx/
