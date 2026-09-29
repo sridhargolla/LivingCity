@@ -16,6 +16,7 @@ curl -s -X POST "https://huggingface.co/api/repos" \
   -d "{\"type\":\"space\",\"name\":\"$SPACE\",\"sdk\":\"docker\",\"private\":false}" | head -c 200
 echo
 
+export REPO
 echo "== Pushing LLM secrets into the Space =="
 python3 - <<'PY'
 import json, os, urllib.request
@@ -35,7 +36,7 @@ def set_secret(name, value):
 set_secret("HINDSIGHT_API_LLM_API_KEY", cfg.get("apiKey", ""))
 set_secret("HINDSIGHT_API_LLM_DEFAULT_HEADERS", json.dumps({"X-Token": cfg.get("token", ""), "X-Z-AI-From": "Z"}))
 PY
-export REPO
+
 
 echo "== Cloning Space repo =="
 WORK=$(mktemp -d)
